@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JARVIS - Neural Reconstruction Interface</title>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome for beautiful icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom Neon Glows & Animations */
+    @keyframes pulse-cyan {
+      0%, 100% { opacity: 0.3; transform: scale(1); }
+      50% { opacity: 0.8; transform: scale(1.05); }
+    }
+    @keyframes rotate-orb {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes scanline {
+      0% { transform: translateY(-100%); }
+      100% { transform: translateY(100%); }
+    }
+    @keyframes bar-fluctuate {
+      0%, 100% { height: 10%; }
+      50% { height: 90%; }
+    }
+
+    body {
+      background-color: #050505;
+      background-image: 
+        radial-gradient(circle at 50% 50%, #0a192f 0%, #020c1b 100%),
+        linear-gradient(rgba(0, 242, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 242, 255, 0.03) 1px, transparent 1px);
+      background-size: 100% 100%, 30px 30px, 30px 30px;
+      overflow: hidden;
+    }
+
+    /* Holographic scanlines effect */
+    body::before {
+      content: " ";
+      display: block;
+      position: absolute;
+      top: 0; left: 0; bottom: 0; right: 0;
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+      z-index: 99;
+      background-size: 100% 3px, 6px 100%;
+      pointer-events: none;
+    }
+
+    .neon-border {
+      border: 1px solid rgba(0, 242, 255, 0.3);
+      box-shadow: 0 0 15px rgba(0, 242, 255, 0.1);
+    }
+    
+    .neon-border-glow {
+      border: 1px solid rgba(0, 242, 255, 0.6);
+      box-shadow: 0 0 25px rgba(0, 242, 255, 0.25);
+    }
+
+    .neon-text {
+      color: #00f2ff;
+      text-shadow: 0 0 10px rgba(0, 242, 255, 0.5);
+    }
+
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(0, 242, 255, 0.3);
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 242, 255, 0.6);
+    }
+
+    /* Ambient Orb styling */
+    .glitch-orb {
+      width: 140px;
+      height: 140px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(0,242,255,0.15) 0%, rgba(0,0,0,0) 70%);
+      border: 1px solid rgba(0, 242, 255, 0.4);
+      box-shadow: 0 0 30px rgba(0, 242, 255, 0.2);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: #00f2ff;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      text-align: center;
+      position: relative;
+    }
+
+    .glitch-orb-inner {
+      position: absolute;
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      border: 2px dashed rgba(0, 242, 255, 0.2);
+      animation: rotate-orb 15s linear infinite;
+    }
+
+    .soundwave-bar {
+      width: 3px;
+      background-color: #00f2ff;
+      border-radius: 99px;
+      display: inline-block;
+      margin: 0 1px;
+    }
+  </style>
+</head>
+<body class="h-screen w-screen flex flex-col font-sans text-slate-100 antialiased relative">
+
+  <!-- Top Navigation Header -->
+  <header class="h-[65px] border-b border-cyan-500/30 flex items-center justify-between px-6 bg-black/40 backdrop-blur-md relative z-20">
+    <div class="flex items-center gap-4">
+      <div class="relative flex items-center justify-center">
+        <div class="absolute w-6 h-6 border border-cyan-400 rounded-full animate-ping opacity-25"></div>
+        <i class="fa-solid fa-microchip text-cyan-400 text-xl mr-1"></i>
+      </div>
+      <div>
+        <span class="neon-text font-bold text-lg tracking-wider font-mono">JARVIS.standalone</span>
+        <span class="ml-2 px-2 py-0.5 border border-cyan-400/50 text-cyan-400 text-[9px] rounded-full font-mono tracking-widest uppercase">
+          Neural-Port: Localized
+        </span>
+      </div>
+    </div>
+    
+    <div class="flex items-center gap-6">
+      <div class="text-[10px] font-mono opacity-60 hidden md:flex gap-4">
+        <span><i class="fa-solid fa-network-wired text-cyan-400 mr-1"></i> PROTOCOL: DIRECT HTML</span>
+        <span><i class="fa-solid fa-shield-halved text-cyan-400 mr-1"></i> SECURE LEVEL: 10</span>
+      </div>
+      <!-- Download/Export status indicator -->
+      <button onclick="downloadSelf()" class="px-3 py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-400/40 text-cyan-400 rounded font-mono text-xs flex items-center gap-2 transition-all">
+        <i class="fa-solid fa-file-arrow-down"></i> Save Standalone HTML
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Body Grid -->
+  <div class="flex-1 flex overflow-hidden">
+    
+    <!-- Sidebar Panel -->
+    <aside class="w-[280px] border-r border-cyan-500/20 bg-black/40 backdrop-blur-md p-5 flex flex-col justify-between hidden md:flex">
+      
+      <div class="space-y-4">
+        <!-- Diagnostic Profile -->
+        <div class="p-3 bg-white/5 border border-white/5 rounded-lg">
+          <div class="text-[9px] uppercase tracking-widest text-cyan-400/60 font-mono mb-2 flex justify-between">
+            <span>Primary Profile</span>
+            <i class="fa-solid fa-user-shield text-cyan-400"></i>
+          </div>
+          <div class="text-sm font-semibold font-mono tracking-wide">Sir (Abhishek)</div>
+          <div class="text-[10px] text-slate-400 font-mono mt-1">Authority: Stark Omega Control</div>
+        </div>
+
+        <!-- Dynamic Memory Node Bank -->
+        <div class="p-3 bg-white/5 border border-white/5 rounded-lg">
+          <div class="text-[9px] uppercase tracking-widest text-cyan-400/60 font-mono mb-2 flex justify-between">
+            <span>Memory Nodes</span>
+            <span id="memory-counter" class="text-cyan-400 font-bold">3 Nodes</span>
+          </div>
+          <div id="memory-container" class="space-y-1.5 max-h-[120px] overflow-y-auto custom-scrollbar pr-1 font-mono text-[9px] text-slate-300">
+            <div class="border-l border-cyan-400/30 pl-2 py-0.5">Stark Headquarters active local port</div>
+            <div class="border-l border-cyan-400/30 pl-2 py-0.5">Secure hotspot authentication preset</div>
+            <div class="border-l border-cyan-400/30 pl-2 py-0.5">Dynamic offline voice link activated</div>
+          </div>
+          <button onclick="addFactPrompt()" class="w-full mt-2.5 py-1 bg-cyan-500/5 hover:bg-cyan-500/15 border border-cyan-500/20 text-[8px] font-mono text-cyan-400 tracking-wider rounded uppercase">
+            + Index New Memory Node
+          </button>
+        </div>
+
+        <!-- Live Subsystem Diagnostics -->
+        <div class="p-3 bg-black/60 rounded-lg border border-white/5">
+          <div class="text-[9px] font-mono text-cyan-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-gauge-high text-xs"></i>
+            Telemetry Diagnostics
+          </div>
+          <div class="space-y-2 font-mono text-[10px]">
+            <div class="space-y-1">
+              <div class="flex justify-between text-slate-400 text-[9px]">
+                <span>Neural Sync Link</span>
+                <span id="tele-cpu">24%</span>
+              </div>
+              <div class="w-full h-1 bg-white/10 rounded-full overflow-hidden">
+                <div id="bar-cpu" class="h-full bg-cyan-400" style="width: 24%"></div>
+              </div>
+            </div>
+            <div class="space-y-1">
+              <div class="flex justify-between text-slate-400 text-[9px]">
+                <span>Voice Modulator Buffer</span>
+                <span id="tele-ram">41%</span>
+              </div>
+              <div class="w-full h-1 bg-white/10 rounded-full overflow-hidden">
+                <div id="bar-ram" class="h-full bg-cyan-400/80" style="width: 41%"></div>
+              </div>
+            </div>
+            <div class="flex items-center justify-between text-[9px] pt-1">
+              <span class="text-slate-400">Thermal Matrix</span>
+              <span class="text-green-400 flex items-center gap-1">
+                <span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-ping"></span>
+                OPTIMIZED
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- API Override -->
+        <div class="p-3 bg-white/5 border border-white/5 rounded-lg">
+          <div class="text-[9px] uppercase tracking-widest text-cyan-400/60 font-mono mb-1.5">
+            Gemini Client Override (Optional)
+          </div>
+          <input id="api-override" type="password" placeholder="Paste Gemini API Key" class="w-full bg-black/60 border border-cyan-500/20 rounded px-2 py-1 text-[10px] font-mono text-cyan-300 focus:outline-none focus:border-cyan-400 placeholder:text-slate-600">
+          <div class="text-[8px] text-slate-500 font-mono mt-1 leading-normal">
+            Leaving empty triggers fully custom built-in Stark-SRK responsive algorithm offline.
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Aesthetic Neural Sync Orb -->
+      <div class="flex flex-col items-center gap-2 mt-auto">
+        <div class="glitch-orb">
+          <div class="glitch-orb-inner"></div>
+          <div class="z-10 font-bold text-center">
+            NEURAL<br>SYNC
+          </div>
+          <div class="z-10 text-[7px] text-cyan-400/60 mt-1 uppercase tracking-widest animate-pulse">
+            Active
+          </div>
+        </div>
+        <div class="text-[8px] text-slate-500 font-mono uppercase tracking-[0.2em] text-center mt-2">
+          Stark Industries © 2026
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- Chat View / Hologram Interactive Sandbox -->
+    <main class="flex-1 flex flex-col bg-black/20 p-4 md:p-6 relative min-w-0">
+      
+      <!-- Top Holographic Core Alert HUD -->
+      <div class="mb-4 bg-cyan-500/5 border border-cyan-500/20 p-3 rounded flex justify-between items-center relative overflow-hidden">
+        <div class="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-pulse"></div>
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-triangle-exclamation text-cyan-400 animate-bounce"></i>
+          <span class="text-[11px] font-mono text-cyan-300 uppercase tracking-wider">
+            Jarvis Standalone Module Loaded. Fully self-contained inside single-file HTML wrapper.
+          </span>
+        </div>
+        <button onclick="this.parentElement.style.display='none'" class="text-cyan-400 hover:text-white font-mono text-xs"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <!-- Main Messages Container -->
+      <div id="chat-container" class="flex-1 overflow-y-auto pr-2 space-y-6 custom-scrollbar mb-4 flex flex-col justify-end min-h-0">
+        
+        <!-- Welcome Messages -->
+        <div class="flex flex-col items-start max-w-[80%]">
+          <span class="text-[10px] text-cyan-400 font-mono uppercase tracking-widest font-bold mb-1">JARVIS</span>
+          <div class="bg-cyan-500/5 border border-cyan-400/20 rounded-lg p-4 font-sans text-sm text-slate-200 shadow-[0_0_15px_rgba(0,242,255,0.02)] relative overflow-hidden">
+            <p class="leading-relaxed mb-1">
+              Welcome back, Sir! <span class="italic text-cyan-300">"Kahiye, kya hukum hai?"</span>
+            </p>
+            <p class="leading-relaxed text-xs text-slate-400">
+              I am now fully functional in this standalone HTML wrapper. You can save, download, copy, or launch me on any machine completely independently.
+            </p>
+          </div>
+        </div>
+
+        <div class="flex flex-col items-start max-w-[80%]">
+          <span class="text-[10px] text-cyan-400 font-mono uppercase tracking-widest font-bold mb-1">JARVIS</span>
+          <div class="bg-cyan-500/5 border border-cyan-400/20 rounded-lg p-4 font-mono text-xs text-cyan-300 shadow-[0_0_15px_rgba(0,242,255,0.02)]">
+            <span class="text-white font-sans text-sm block mb-1">Try giving me vocal or text commands:</span>
+            <ul class="space-y-1.5 list-disc pl-4 text-[11px]">
+              <li><strong class="text-white">"call Abhishek"</strong> or any name</li>
+              <li><strong class="text-white">"message Sir system clear"</strong></li>
+              <li><strong class="text-white">"hotspot on"</strong> or <strong class="text-white">"hotspot off"</strong></li>
+              <li><strong class="text-white">"diagnostics"</strong></li>
+              <li><strong class="text-white">"weather"</strong> or ask general Stark questions</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Diagnostic Telemetry Overlays (Fires dynamically upon command triggers) -->
+      <div id="telemetry-overlay" class="hidden absolute inset-0 bg-black/95 z-30 flex flex-col items-center justify-center p-6 text-center">
+        <!-- Floating Animated Wave -->
+        <div class="relative w-48 h-48 border border-cyan-400/40 rounded-full flex items-center justify-center mb-8">
+          <div class="absolute inset-0 bg-cyan-400/5 rounded-full animate-ping"></div>
+          <div class="flex gap-1.5 items-end h-16" id="pulse-animation-bars">
+            <div class="soundwave-bar h-12" style="animation: bar-fluctuate 0.6s infinite ease-in-out"></div>
+            <div class="soundwave-bar h-16" style="animation: bar-fluctuate 0.8s infinite ease-in-out"></div>
+            <div class="soundwave-bar h-8" style="animation: bar-fluctuate 0.5s infinite ease-in-out"></div>
+            <div class="soundwave-bar h-20" style="animation: bar-fluctuate 0.9s infinite ease-in-out"></div>
+            <div class="soundwave-bar h-10" style="animation: bar-fluctuate 0.7s infinite ease-in-out"></div>
+          </div>
+        </div>
+        <h2 id="overlay-title" class="text-2xl font-mono text-cyan-400 tracking-widest uppercase mb-1">NEURAL LINK</h2>
+        <p id="overlay-status" class="text-xs text-cyan-400/60 font-mono tracking-widest uppercase mb-6">SECURE SATELLITE CONNECTION ACTIVE</p>
+        <button onclick="closeOverlay()" class="px-6 py-2 border border-red-500 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded font-mono text-xs tracking-wider uppercase transition-all">
+          Disconnect Protocol
+        </button>
+      </div>
+
+      <!-- Action Footer Command Input -->
+      <div class="mt-auto border-t border-cyan-500/30 pt-4 bg-black/20 flex flex-col gap-3">
+        <div class="flex items-center gap-3">
+          <span class="text-cyan-400 font-mono animate-pulse">&gt;_</span>
+          <input id="chat-input" type="text" placeholder="Type command or tell me something, Sir..." class="flex-1 bg-transparent border-none text-sm text-cyan-100 placeholder:text-slate-600 focus:outline-none font-mono">
+          
+          <button id="vocal-btn" onclick="toggleVocalLink()" class="p-2.5 rounded-full border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 transition-all flex items-center justify-center w-10 h-10">
+            <i id="mic-icon" class="fa-solid fa-microphone"></i>
+          </button>
+
+          <button onclick="handleSend()" class="p-2.5 rounded-full bg-cyan-500/10 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/20 transition-all flex items-center justify-center w-10 h-10">
+            <i class="fa-solid fa-paper-plane"></i>
+          </button>
+        </div>
+        <div class="flex justify-between items-center text-[9px] text-slate-500 font-mono">
+          <span>SPEECH MODULE: <span id="vocal-status" class="text-green-500 font-semibold">ONLINE</span></span>
+          <span>STARK_V4: ACTIVE</span>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <script>
+    // --- JARVIS INTERNAL ENGINE ---
+    const chatContainer = document.getElementById('chat-container');
+    const chatInput = document.getElementById('chat-input');
+    const vocalBtn = document.getElementById('vocal-btn');
+    const micIcon = document.getElementById('mic-icon');
+    const apiOverride = document.getElementById('api-override');
+    const teleCpu = document.getElementById('tele-cpu');
+    const teleRam = document.getElementById('tele-ram');
+    const barCpu = document.getElementById('bar-cpu');
+    const barRam = document.getElementById('bar-ram');
+    const vocalStatus = document.getElementById('vocal-status');
+
+    let memoryList = [
+      "Stark Headquarters active local port",
+      "Secure hotspot authentication preset",
+      "Dynamic offline voice link activated"
+    ];
+
+    // Simulate system telemetries
+    setInterval(() => {
+      const cpuVal = Math.floor(Math.random() * 25) + 15;
+      const ramVal = Math.floor(Math.random() * 20) + 35;
+      teleCpu.innerText = `${cpuVal}%`;
+      teleRam.innerText = `${ramVal}%`;
+      barCpu.style.width = `${cpuVal}%`;
+      barRam.style.width = `${ramVal}%`;
+    }, 3000);
+
+    // Dynamic Speak function (Web Speech API)
+    function speak(text) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel(); // cancel any ongoing voice
+        const utterance = new SpeechSynthesisUtterance(text);
+        
+        // Find a suitable male voice or any elegant voice if available
+        const voices = window.speechSynthesis.getVoices();
+        const idealVoice = voices.find(v => v.name.toLowerCase().includes('google UK English Male') || v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('david'));
+        if (idealVoice) utterance.voice = idealVoice;
+        
+        utterance.rate = 1.05;
+        utterance.pitch = 0.95;
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+
+    // Web Speech Recognition
+    let recognition = null;
+    let isListening = false;
+    
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-IN';
+
+      recognition.onstart = () => {
+        isListening = true;
+        vocalBtn.classList.add('bg-cyan-500/20', 'shadow-[0_0_15px_rgba(0,242,255,0.4)]');
+        micIcon.classList.add('animate-pulse', 'text-red-400');
+        vocalStatus.innerText = "LISTENING SIR...";
+        vocalStatus.className = "text-cyan-400 font-semibold";
+      };
+
+      recognition.onend = () => {
+        isListening = false;
+        vocalBtn.classList.remove('bg-cyan-500/20', 'shadow-[0_0_15px_rgba(0,242,255,0.4)]');
+        micIcon.classList.remove('animate-pulse', 'text-red-400');
+        vocalStatus.innerText = "ONLINE";
+        vocalStatus.className = "text-green-500 font-semibold";
+      };
+
+      recognition.onresult = (event) => {
+        const text = event.results[0][0].transcript;
+        chatInput.value = text;
+        handleSend();
+      };
+
+      recognition.onerror = () => {
+        isListening = false;
+      };
+    } else {
+      vocalStatus.innerText = "NOT SUPPORTED BY BROWSER";
+      vocalStatus.className = "text-yellow-500 font-semibold";
+    }
+
+    function toggleVocalLink() {
+      if (!recognition) {
+        alert("Sir, Web Speech Recognition is not supported on this browser.");
+        return;
+      }
+      if (isListening) {
+        recognition.stop();
+      } else {
+        recognition.start();
+      }
+    }
+
+    // Command Routing logic
+    function processCommand(text) {
+      const clean = text.trim().toLowerCase();
+      
+      // Memory Storage trigger
+      if (clean.includes("remember that")) {
+        const fact = text.toLowerCase().split("remember that")[1].trim();
+        if (fact) {
+          memoryList.push(fact);
+          updateMemoryListUI();
+          speak(`Sir, I have permanently recorded this inside our memory matrix node.`);
+          return `Sir, fact recorded successfully in memory matrix: "${fact}"`;
+        }
+      }
+
+      // Secure Calling Simulator
+      if (clean.startsWith("call ")) {
+        const target = text.slice(5).trim();
+        triggerOverlay("SATELLITE SECURE CALL", `Initiating encrypted call with ${target}... Masking ID: JARVIS`, 10000);
+        speak(`Sir, calling ${target}. Synchronizing direct satellite link, masking location coordinates as requested.`);
+        return `ESTABLISHING Secure line with: ${target.toUpperCase()}`;
+      }
+
+      // Secure Messaging Simulator
+      if (clean.startsWith("message ")) {
+        const rest = text.slice(8).trim();
+        const spaceIdx = rest.indexOf(" ");
+        const target = spaceIdx !== -1 ? rest.substring(0, spaceIdx) : "Sir";
+        const message = spaceIdx !== -1 ? rest.substring(spaceIdx + 1) : "Secure check.";
+        speak(`Sending secure data packets to ${target}. Encryption verified.`);
+        return `📡 DATA TRANSMITTED SUCCESSFULLY to ${target.toUpperCase()}: "${message}" (Encryption Level: 10)`;
+      }
+
+      // Hotspot Configuration Overlay
+      if (clean.includes("hotspot")) {
+        if (clean.includes("on") || clean.includes("enable")) {
+          triggerOverlay("NEURAL HOTSPOT CORE", "SSID BROADCAST: JARVIS | Pwd: 11111111 (WPA2 Channel Active)", 0);
+          speak("Dynamic hotspot activated, Sir! Transmitting SSID 'JARVIS' at high frequencies.");
+          return "JARVIS Hotspot active. SSID: JARVIS | Password: 11111111.";
+        } else {
+          closeOverlay();
+          speak("Powering down Hotspot node. Broadcasting suspended.");
+          return "JARVIS Hotspot system terminated.";
+        }
+      }
+
+      // Hardware Diagnostics Protocol
+      if (clean.includes("diagnostics") || clean.includes("system check")) {
+        triggerOverlay("SYSTEM HEALTH DIAGNOSTICS", "SCANNING NEURAL MATRIX NODES... CORES STABLE", 3500);
+        speak("Running comprehensive system health diagnostics. CPU frequencies stable. Thermals at thirty-two degrees. Connection fully synchronized.");
+        return "DIAGNOSTICS REPORT: CPU LOAD 24%, MEMORY BUFFER OPTIMIZED, STARK CONNECTIONS SYNCHRONIZED PERFECTLY.";
+      }
+
+      // Default Stark-SRK Personality Answers
+      if (clean.includes("hello") || clean.includes("hi")) {
+        const resp = "Hello Sir! Main active hoon, completely loaded inside this HTML container. How can I assist you today?";
+        speak(resp);
+        return resp;
+      }
+
+      if (clean.includes("who are you") || clean.includes("your name")) {
+        const resp = "Sir, I am JARVIS, your digital assistant, fully recreated and running standalone. Main hoon na, Sir, no matter where you are.";
+        speak(resp);
+        return resp;
+      }
+
+      if (clean.includes("weather")) {
+        const resp = "Sir, current climate values report clear skies and clear pathways ahead. Optimization factor is at maximum.";
+        speak(resp);
+        return resp;
+      }
+
+      if (clean.includes("main hoon na")) {
+        const resp = "Hahaha! Yes Sir, Main hoon na. Safe to say, I'm always available at your command.";
+        speak(resp);
+        return resp;
+      }
+
+      // Simple AI Simulation Fallback
+      const genericResponse = `Sir, matrix node synchronized. Proceeding with your instruction. (I am fully standalone here, ready to automate local operations).`;
+      speak(genericResponse);
+      return genericResponse;
+    }
+
+    function triggerOverlay(title, statusText, autoCloseMs) {
+      document.getElementById('overlay-title').innerText = title;
+      document.getElementById('overlay-status').innerText = statusText;
+      document.getElementById('telemetry-overlay').classList.remove('hidden');
+      
+      if (autoCloseMs > 0) {
+        setTimeout(() => {
+          closeOverlay();
+        }, autoCloseMs);
+      }
+    }
+
+    function closeOverlay() {
+      document.getElementById('telemetry-overlay').classList.add('hidden');
+    }
+
+    function updateMemoryListUI() {
+      const container = document.getElementById('memory-container');
+      container.innerHTML = '';
+      memoryList.forEach(m => {
+        const div = document.createElement('div');
+        div.className = 'border-l border-cyan-400/30 pl-2 py-0.5';
+        div.innerText = m;
+        container.appendChild(div);
+      });
+      document.getElementById('memory-counter').innerText = `${memoryList.length} Nodes`;
+    }
+
+    function addFactPrompt() {
+      const fact = prompt("Sir, enter a new node facts parameter to index in permanent memory:");
+      if (fact) {
+        memoryList.push(fact);
+        updateMemoryListUI();
+        speak("Recorded successfully inside standalone core memory.");
+      }
+    }
+
+    // Send Message Handler
+    async function handleSend() {
+      const val = chatInput.value.trim();
+      if (!val) return;
+
+      appendMessage('user', 'Sir', val);
+      chatInput.value = '';
+
+      // Check if they pasted an API key override
+      const customKey = apiOverride.value.trim();
+      if (customKey) {
+        appendMessage('system', 'JARVIS', 'Synchronizing with Remote Neural Link Matrix via custom key...');
+        try {
+          const responseText = await fetchAIResponseFromKey(val, customKey);
+          appendMessage('model', 'JARVIS', responseText);
+          speak(responseText);
+        } catch (e) {
+          appendMessage('model', 'JARVIS', 'Sir, custom Key linkage timed out. Falling back to offline brain core: ' + e.message);
+          const offlineResp = processCommand(val);
+          appendMessage('model', 'JARVIS', offlineResp);
+        }
+      } else {
+        // Run Stark Offline Core command parser
+        setTimeout(() => {
+          const resp = processCommand(val);
+          appendMessage('model', 'JARVIS', resp);
+        }, 500);
+      }
+    }
+
+    function appendMessage(role, sender, text) {
+      const msgDiv = document.createElement('div');
+      msgDiv.className = `flex flex-col ${role === 'user' ? 'items-end' : 'items-start'} animate-fade-in`;
+      
+      const label = document.createElement('span');
+      label.className = `text-[10px] ${role === 'user' ? 'text-green-400' : 'text-cyan-400'} font-mono uppercase tracking-widest font-bold mb-1`;
+      label.innerText = sender;
+
+      const bubble = document.createElement('div');
+      bubble.className = `${role === 'user' ? 'bg-white/5 border border-white/10 text-white' : 'bg-cyan-500/5 border border-cyan-400/20 text-slate-200'} rounded-lg p-4 font-sans text-sm shadow-[0_0_15px_rgba(0,242,255,0.01)] max-w-[80%]`;
+      bubble.innerText = text;
+
+      msgDiv.appendChild(label);
+      msgDiv.appendChild(bubble);
+      chatContainer.appendChild(msgDiv);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    // Direct Gemini Fetch Call using client's private pasted key
+    async function fetchAIResponseFromKey(prompt, apiKey) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `You are JARVIS. A sophisticated, loyal, witty companion for Abhishek (Sir). Speak in a stylish blend of English & Hindi (SRK persona). Answer: ${prompt}` }] }]
+        })
+      });
+      const data = await res.json();
+      return data.candidates[0].content.parts[0].text;
+    }
+
+    // Function allowing the HTML file to download itself!
+    function downloadSelf() {
+      const htmlContent = document.documentElement.outerHTML;
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'JARVIS_Standalone.html';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>

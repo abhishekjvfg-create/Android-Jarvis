@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "JarvisAccount": {
+      "title": "Jarvis Account",
+      "description": "Registered user account with authentication and subscription status",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "passwordHash": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "isProUnlocked": { "type": "boolean" },
+        "proExpiresAt": { "type": "number" },
+        "proUnlockedAt": { "type": "string" }
+      },
+      "required": ["email", "passwordHash"]
+    },
+    "UserChatSession": {
+      "title": "User Chat Session",
+      "description": "Saved user chat sessions synced to account",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "persona": { "type": "string", "enum": ["jarvis", "rose"] },
+        "title": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastMessage": { "type": "string" }
+      },
+      "required": ["id", "userEmail", "persona"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A single message in the conversation history",
+      "type": "object",
+      "properties": {
+        "role": { "type": "string", "enum": ["user", "model"] },
+        "content": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "isImage": { "type": "boolean" },
+        "isCall": { "type": "boolean" },
+        "isMessage": { "type": "boolean" },
+        "callTarget": { "type": "string" },
+        "messageDetails": {
+          "type": "object",
+          "properties": {
+            "to": { "type": "string" },
+            "text": { "type": "string" }
+          }
+        }
+      },
+      "required": ["role", "content", "timestamp"]
+    },
+    "UserMemory": {
+      "title": "User Memory",
+      "description": "Fragmented memory blocks for Jarvis to recall",
+      "type": "object",
+      "properties": {
+        "fact": { "type": "string" },
+        "category": { "type": "string" },
+        "importance": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fact", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/jarvis_accounts/{userEmail}": {
+      "schema": "JarvisAccount",
+      "description": "User accounts with password hash and Pro status"
+    },
+    "/user_chat_sessions/{sessionId}": {
+      "schema": "UserChatSession",
+      "description": "Persistent user chat sessions"
+    },
+    "/messages": {
+      "schema": "Message",
+      "description": "Global chat history for the session"
+    },
+    "/memory": {
+      "schema": "UserMemory",
+      "description": "Fragmented memory blocks for Jarvis to recall"
+    }
+  }
+}

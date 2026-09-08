@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // Account collection
+    match /jarvis_accounts/{userEmail} {
+      allow read, create, update: if true;
+    }
+
+    // User Chat Sessions collection
+    match /user_chat_sessions/{sessionId} {
+      allow read, create, update, delete: if true;
+    }
+
+    // Messages collection
+    match /messages/{messageId} {
+      allow read: if true;
+      allow create: if (
+        incoming().role is string &&
+        incoming().content is string
+      );
+      allow delete: if false;
+    }
+
+    // Memory collection
+    match /memory/{memoryId} {
+      allow read: if true;
+      allow create: if (
+        incoming().fact is string
+      );
+      allow update: if false;
+      allow delete: if true;
+    }
+  }
+}

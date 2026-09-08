@@ -1,0 +1,12 @@
+{
+  "name": "JARVIS: Neural Core v3.4",
+  "description": "A high-performance AI assistant with a holographic interface, SRK-inspired persona, and Firebase-backed Neural Persistence for total memory recall.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

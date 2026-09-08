@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%">
+  <defs>
+    <linearGradient id="roseBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2a0826" />
+      <stop offset="50%" stop-color="#4a0e3f" />
+      <stop offset="100%" stop-color="#180318" />
+    </linearGradient>
+    <linearGradient id="roseGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffe6a7" />
+      <stop offset="50%" stop-color="#f3a2b8" />
+      <stop offset="100%" stop-color="#e85d88" />
+    </linearGradient>
+    <linearGradient id="pinkHair" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffb6c1" />
+      <stop offset="50%" stop-color="#ff69b4" />
+      <stop offset="100%" stop-color="#d81b60" />
+    </linearGradient>
+    <linearGradient id="roseRed" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff2a6d" />
+      <stop offset="100%" stop-color="#800020" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="10" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background Circle -->
+  <circle cx="250" cy="250" r="240" fill="url(#roseBg)" stroke="url(#roseGold)" stroke-width="8" filter="url(#glow)" />
+  <circle cx="250" cy="250" r="225" fill="none" stroke="#ff69b4" stroke-width="2" stroke-dasharray="8 6" opacity="0.6" />
+
+  <!-- Outer Decorative Ring & Roses -->
+  <g opacity="0.9">
+    <!-- Top Rose Emblem -->
+    <circle cx="250" cy="35" r="18" fill="url(#roseRed)" stroke="url(#roseGold)" stroke-width="3" />
+    <path d="M242,35 C242,28 258,28 258,35 C258,42 242,42 242,35 Z" fill="#ffb6c1" opacity="0.8" />
+    
+    <!-- Side Decorative Ornaments -->
+    <path d="M40,250 Q20,200 60,160 Q30,220 40,250 Z" fill="url(#roseGold)" />
+    <path d="M460,250 Q480,200 440,160 Q470,220 460,250 Z" fill="url(#roseGold)" />
+  </g>
+
+  <!-- Character Vector Art (Anime Girl with Pink Hair & Rose) -->
+  <g id="character">
+    <!-- Hair Back -->
+    <path d="M140,220 Q120,320 180,400 Q250,430 320,400 Q380,320 360,220 Z" fill="url(#pinkHair)" opacity="0.9" />
+
+    <!-- Dress / Shoulders -->
+    <path d="M150,380 C170,330 200,320 250,320 C300,320 330,330 350,380 C360,410 370,450 370,470 L130,470 C130,450 140,410 150,380 Z" fill="#fff" stroke="#f3a2b8" stroke-width="3" />
+    <path d="M180,350 Q250,380 320,350 L310,400 Q250,420 190,400 Z" fill="url(#roseRed)" opacity="0.85" />
+
+    <!-- Neck & Face -->
+    <path d="M225,310 L275,310 L270,340 Q250,350 230,340 Z" fill="#ffe0bd" />
+    <path d="M185,210 Q250,190 315,210 Q325,270 250,320 Q175,270 185,210 Z" fill="#fff0db" stroke="#f2beab" stroke-width="2" />
+
+    <!-- Eyes -->
+    <ellipse cx="215" cy="245" rx="16" ry="22" fill="#2a0826" />
+    <ellipse cx="215" cy="245" rx="12" ry="18" fill="url(#roseRed)" />
+    <circle cx="210" cy="238" r="5" fill="#fff" />
+    <path d="M195,228 Q215,222 232,228" stroke="#333" stroke-width="3.5" fill="none" stroke-linecap="round" />
+
+    <ellipse cx="285" cy="245" rx="16" ry="22" fill="#2a0826" />
+    <ellipse cx="285" cy="245" rx="12" ry="18" fill="url(#roseRed)" />
+    <circle cx="280" cy="238" r="5" fill="#fff" />
+    <path d="M268,228 Q285,222 305,228" stroke="#333" stroke-width="3.5" fill="none" stroke-linecap="round" />
+
+    <!-- Cute Blush & Smile -->
+    <ellipse cx="200" cy="265" rx="12" ry="6" fill="#ff69b4" opacity="0.4" />
+    <ellipse cx="300" cy="265" rx="12" ry="6" fill="#ff69b4" opacity="0.4" />
+    <path d="M242,275 Q250,283 258,275" stroke="#e85d88" stroke-width="3" fill="none" stroke-linecap="round" />
+
+    <!-- Hair Front Bangs -->
+    <path d="M175,210 Q220,150 250,200 Q280,150 325,210 Q280,170 250,220 Q220,170 175,210 Z" fill="url(#pinkHair)" />
+    <path d="M150,220 Q170,140 250,120 Q330,140 350,220 Q330,120 250,100 Q170,120 150,220 Z" fill="url(#pinkHair)" />
+
+    <!-- Flower Hairpin -->
+    <circle cx="320" cy="160" r="16" fill="url(#roseRed)" stroke="url(#roseGold)" stroke-width="2" />
+    <circle cx="335" cy="170" r="10" fill="url(#roseRed)" />
+
+    <!-- Hand holding a Red Rose -->
+    <path d="M180,360 Q170,300 160,260" stroke="#2e7d32" stroke-width="4" fill="none" />
+    <!-- Leaf -->
+    <path d="M165,300 Q145,290 155,310 Z" fill="#4caf50" />
+    <!-- Red Rose Bud -->
+    <path d="M160,250 C140,240 140,210 160,200 C180,210 180,240 160,250 Z" fill="url(#roseRed)" stroke="url(#roseGold)" stroke-width="2" />
+    <path d="M152,225 Q160,215 168,225 Q160,235 152,225 Z" fill="#ffb6c1" />
+  </g>
+
+  <!-- Gold Frame Border Banner -->
+  <g>
+    <path d="M80,410 Q250,430 420,410 L440,460 Q250,485 60,460 Z" fill="#fff0f5" stroke="url(#roseGold)" stroke-width="4" filter="url(#glow)" />
+    <text x="250" y="452" font-family="'Times New Roman', serif" font-size="44" font-weight="bold" fill="#b30047" text-anchor="middle" letter-spacing="12">ROSE</text>
+  </g>
+</svg>
