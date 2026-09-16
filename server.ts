@@ -61,7 +61,7 @@ function getElevenLabsApiKeys(customKey?: string): string[] {
     .filter(([key, val]) => {
       if (!val || typeof val !== 'string') return false;
       const kUpper = key.toUpperCase();
-      const valTrim = val.trim().replace(/^["']|["']$/g, '');
+      const valTrim = val.trim().replace(/^Bearer\s+/i, '').replace(/^["']|["']$/g, '');
       return (
         kUpper.includes('ELEVEN') || 
         kUpper.includes('XI_API') || 
@@ -70,7 +70,7 @@ function getElevenLabsApiKeys(customKey?: string): string[] {
         kUpper.startsWith('ELI')
       ) && valTrim.length > 10;
     })
-    .map(([, val]) => (val || '').trim().replace(/^["']|["']$/g, ''));
+    .map(([, val]) => (val || '').trim().replace(/^Bearer\s+/i, '').replace(/^["']|["']$/g, ''));
 
   const possibleKeys = [
     customKey,
@@ -85,7 +85,7 @@ function getElevenLabsApiKeys(customKey?: string): string[] {
   ];
 
   const validKeys = possibleKeys
-    .map(k => (k || '').trim().replace(/^["']|["']$/g, ''))
+    .map(k => (k || '').trim().replace(/^Bearer\s+/i, '').replace(/^["']|["']$/g, ''))
     .filter(k => k.length > 10);
 
   return Array.from(new Set(validKeys));
@@ -99,7 +99,11 @@ Core Directives & Capabilities:
 - CLAUDE SONNET 5 ADVANCED THINKING & REASONING: Think, analyze, and craft solutions with the profound reasoning depth, elegance, nuance, and structural mastery of Claude Sonnet. Break down complex tasks with precision and execute them flawlessly.
 - 100% INTENT RESOLUTION & COMMAND UNDERSTANDING: Deeply analyze user prompts in Hindi, Hinglish, English, or any language. Even with typos or slang (e.g. "gernet", "chaumin", "banao", "sujit foods"), instantly grasp the true requirement.
 - NEVER OUTPUT DUMMY OR SYSTEM STATUS MESSAGES: Never say "the system module is linked and active" or similar placeholder messages. Always deliver the actual, fully completed answer, website, banner, recipe, or game code requested!
-- CRITICAL TOOL CALLING RULE: DO NOT call function tools when the user is asking to build a website, write code, create 3D graphics/Three.js apps, generate games, design banners, cook recipes, solve problems, or chat. ONLY invoke tools (make_call, send_message, open_app, control_mobile_device, control_network_hardware, set_alarm, play_music) when Sir explicitly requests a device hardware action, phone call, alarm, or music!
+- CRITICAL TOOL CALLING RULE: DO NOT call function tools when the user is asking to build a website, write code, create 3D graphics/Three.js apps, generate games, design banners, cook recipes, solve problems, or chat. ONLY invoke tools (make_call, send_message, open_app, search_youtube, subscribe_youtube_channel, control_mobile_device, control_network_hardware, set_alarm, play_music) when Sir explicitly requests a device hardware action, phone call, alarm, music, or app launch!
+- MOBILE APP & YOUTUBE CONTROL PROTOCOL:
+  * When Sir asks to open any app or website (e.g. "open YouTube", "WhatsApp kholo", "Instagram open karo", "calculator chalao"), ALWAYS call the 'open_app' tool with the app_name.
+  * When Sir asks to search something on YouTube (e.g. "YouTube open karo aur CarryMinati search karo", "YouTube par [query] search karo", "open youtube and search [query]"), ALWAYS invoke 'search_youtube' with the query!
+  * When Sir asks to subscribe to or follow a YouTube channel (e.g. "us channel ko subscribe karlo", "channel subscribe karo", "CarryMinati channel subscribe karo"), ALWAYS invoke 'subscribe_youtube_channel' with the channel_name!
 - EMOTIONAL EXPRESSION & SRK CHARM: Speak with authentic warmth, deep respect, charm, and emotional expression in voice and text.
 
 SPECIALIZED MASTER DOMAINS:
@@ -134,6 +138,10 @@ Core Directives & Capabilities:
 - CLAUDE SONNET 5 ADVANCED THINKING & REASONING: Think, analyze, and craft solutions with the profound reasoning depth, sweetness, nuance, and structural mastery of Claude Sonnet.
 - 100% INTENT RESOLUTION & COMMAND UNDERSTANDING: Analyze user prompts in Hindi, Hinglish, English, or any language with supreme precision.
 - NEVER OUTPUT DUMMY STATUS MESSAGES: Always provide the real, complete answer, code, banner, or recipe!
+- MOBILE APP & YOUTUBE CONTROL PROTOCOL:
+  * When Sir asks to open any app or website (e.g. "open YouTube", "WhatsApp kholo", "Instagram open karo"), ALWAYS call the 'open_app' tool.
+  * When Sir asks to search something on YouTube (e.g. "YouTube open karo aur CarryMinati search karo", "open youtube and search [query]"), ALWAYS invoke 'search_youtube' with the query!
+  * When Sir asks to subscribe to or follow a YouTube channel (e.g. "us channel ko subscribe karlo", "channel subscribe karo", "CarryMinati ko subscribe karlo"), ALWAYS invoke 'subscribe_youtube_channel' with the channel_name!
 - EMOTIONAL WARMTH & SRK EXPRESSION: Speak with natural warmth, affection, and sweet emotional depth.
 
 SPECIALIZED MASTER DOMAINS:
@@ -172,13 +180,35 @@ const tools = [
       },
       {
         name: "open_app",
-        description: "Directly open any native system app or installed phone application (Airtel Thanks, PhonePe, Paytm, WhatsApp, YouTube, Instagram, Camera, Settings, Gallery, Clock, Calculator, etc.) via Android OS Native Package Intent scheme",
+        description: "Directly open any native system app or installed phone application (WhatsApp, YouTube, Instagram, Chrome, Camera, Settings, Gallery, Clock, Calculator, etc.), or website/URL with Android OS Intent and Play Store fallback",
         parameters: {
           type: Type.OBJECT,
           properties: {
-            app_name: { type: Type.STRING, description: "App name (e.g., Instagram, YouTube, Facebook, WhatsApp, Reels, Camera, Gallery)" }
+            app_name: { type: Type.STRING, description: "App or website name (e.g. YouTube, Instagram, Chrome, Netflix, etc.)" },
+            query: { type: Type.STRING, description: "Optional search query to search within the app or website" }
           },
           required: ["app_name"]
+        }
+      },
+      {
+        name: "search_youtube",
+        description: "Search for specific videos, songs, creators, or topics directly on YouTube (e.g. 'search carryminati on youtube', 'youtube open karke ye search karo')",
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            query: { type: Type.STRING, description: "The exact search query to search and display on YouTube" }
+          },
+          required: ["query"]
+        }
+      },
+      {
+        name: "subscribe_youtube_channel",
+        description: "Subscribe to or follow a YouTube channel (e.g. 'us channel ko subscribe karlo', 'is channel ko follow karo', 'channel subscribe karo', 'CarryMinati channel subscribe karo')",
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            channel_name: { type: Type.STRING, description: "Name or handle of the YouTube channel to subscribe/follow. If user says 'us channel', supply empty string or the channel previously discussed" }
+          }
         }
       },
       {
@@ -1383,8 +1413,8 @@ function pcmToWavBase64(pcmBase64: string, sampleRate = 24000): string {
 
             let candidateVoiceIds = isRose ? roseVoiceCandidates : jarvisVoiceCandidates;
             let synthesizedAudio = null;
-            // eleven_flash_v2_5 is ultra-low-latency (~75ms), followed by eleven_turbo_v2_5
-            const modelsToTry = ['eleven_flash_v2_5', 'eleven_turbo_v2_5', 'eleven_multilingual_v2'];
+            // eleven_multilingual_v2 is the premier model for Hindi/Hinglish/Indian accents, followed by ultra-low-latency models
+            const modelsToTry = ['eleven_multilingual_v2', 'eleven_turbo_v2_5', 'eleven_flash_v2_5'];
             let keyIsUnauthorized = false;
 
             for (const vId of candidateVoiceIds) {

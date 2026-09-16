@@ -6,7 +6,7 @@
 import React, { useState, useRef, useEffect, MouseEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Mic, MicOff, Send, ArrowRight, ArrowUp, ArrowUpRight, SendHorizontal, Image as ImageIcon, Volume2, VolumeX, Loader2, Cpu, Terminal as TerminalIcon, Sparkles, Phone, Video, Lock, QrCode, CheckCheck, UserPlus, Database, Settings, X, Wifi, Menu, Plus, MessageSquare, MessageSquarePlus, Trash2, Clock, ChevronRight, Search, Upload, FileText, Smartphone, Sun, Maximize2, Minimize2, ShieldCheck, Layers, ExternalLink, Film, CheckCircle2, XCircle, Tv, Sliders, Globe, Instagram, MessageCircle, Radio, Paperclip, Code, Bell, BellRing, BellOff, AlarmClock, Download, Gamepad2, RotateCcw, Play, RefreshCw, Power, Copy, Star, CreditCard, AlertCircle, Key, Workflow } from 'lucide-react';
+import { Mic, MicOff, Send, ArrowRight, ArrowUp, ArrowUpRight, SendHorizontal, Image as ImageIcon, Volume2, VolumeX, Loader2, Cpu, Terminal as TerminalIcon, Sparkles, Phone, Video, Lock, QrCode, CheckCheck, UserPlus, Database, Settings, X, Wifi, Menu, Plus, MessageSquare, MessageSquarePlus, Trash2, Clock, ChevronRight, Search, Upload, FileText, Smartphone, Sun, Maximize2, Minimize2, ShieldCheck, Layers, ExternalLink, Film, CheckCircle2, XCircle, Tv, Sliders, Globe, Instagram, MessageCircle, Radio, Paperclip, Code, Bell, BellRing, BellOff, AlarmClock, Download, Gamepad2, RotateCcw, Play, RefreshCw, Power, Copy, Star, CreditCard, AlertCircle, Key, Workflow, Youtube } from 'lucide-react';
 import JSZip from 'jszip';
 import { chatWithJarvis, generateImage, textToSpeech, logBackgroundConversation } from './services/geminiService';
 import HolographicContainer from './components/HolographicContainer';
@@ -150,6 +150,8 @@ interface Message {
   isHotspot?: boolean;
   isMusic?: boolean;
   isAppLaunch?: boolean;
+  isYTSubscribe?: boolean;
+  ytSubscribeDetails?: { channelName: string; subUrl: string; searchUrl?: string; ytAppScheme?: string };
   isAlarm?: boolean;
   isHtmlGame?: boolean;
   isWebsite?: boolean;
@@ -497,7 +499,17 @@ export function parseAlarmCommand(text: string): { time: string; period?: string
 
 export default function App() {
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(() => {
+    const activeP = (typeof window !== 'undefined' ? localStorage.getItem('active_persona') : null) as 'jarvis' | 'rose' || 'jarvis';
+    return [{
+      id: 'welcome_' + Date.now(),
+      role: 'model',
+      content: activeP === 'rose'
+        ? "Namaste! Main Rose hoon, bataiye main aapki kya madad kar sakti hoon?"
+        : "At your service, Sir. Neural link online and ready. How may I assist you today?",
+      timestamp: new Date().toISOString()
+    }];
+  });
   const [isThinking, setIsThinking] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [loadingVoiceMsgKey, setLoadingVoiceMsgKey] = useState<string | number | null>(null);
@@ -527,6 +539,7 @@ export default function App() {
   const isSpeakingRef = useRef<boolean>(false);
   const resumeBackgroundListeningRef = useRef<(() => void) | null>(null);
   const backgroundVoiceTurnIdRef = useRef<number>(0);
+  const lastYouTubeQueryRef = useRef<string>('');
 
   useEffect(() => {
     isBackgroundSystemActiveRef.current = isBackgroundSystemEnabled;
@@ -1722,70 +1735,224 @@ export default function App() {
   // State for Phone Apps Launcher Modal
   const [isAppLauncherModalOpen, setIsAppLauncherModalOpen] = useState<boolean>(false);
 
-  // Handle Mobile App Launch with Deep Links & Native Android Intents (A to Z Phone Apps)
+  // Handle Mobile App Launch with Deep Links, Strict Word-Boundary Matching, & Play Store Fallback
   const APP_URL_MAP: Record<string, { name: string; url: string; packageName: string; appScheme?: string; intentUrl?: string }> = {
-    airtel: { name: 'Airtel Thanks', url: 'https://www.airtel.in', packageName: 'com.myairtelapp', appScheme: 'airtel://' },
-    thanks: { name: 'Airtel Thanks', url: 'https://www.airtel.in', packageName: 'com.myairtelapp', appScheme: 'airtel://' },
-    whatsapp: { name: 'WhatsApp', url: 'https://web.whatsapp.com', packageName: 'com.whatsapp', appScheme: 'whatsapp://' },
-    youtube: { name: 'YouTube', url: 'https://www.youtube.com', packageName: 'com.google.android.youtube', appScheme: 'vnd.youtube://' },
-    yt: { name: 'YouTube', url: 'https://www.youtube.com', packageName: 'com.google.android.youtube', appScheme: 'vnd.youtube://' },
-    instagram: { name: 'Instagram', url: 'https://www.instagram.com', packageName: 'com.instagram.android', appScheme: 'instagram://app' },
-    insta: { name: 'Instagram', url: 'https://www.instagram.com', packageName: 'com.instagram.android', appScheme: 'instagram://app' },
-    phonepe: { name: 'PhonePe', url: 'https://www.phonepe.com', packageName: 'com.phonepe.app', appScheme: 'phonepe://' },
-    paytm: { name: 'Paytm', url: 'https://paytm.com', packageName: 'net.one97.paytm', appScheme: 'paytm://' },
-    gpay: { name: 'Google Pay', url: 'https://pay.google.com', packageName: 'com.google.android.apps.nfc.plugin.mosa.prod', appScheme: 'gpay://' },
-    googlepay: { name: 'Google Pay', url: 'https://pay.google.com', packageName: 'com.google.android.apps.nfc.plugin.mosa.prod', appScheme: 'gpay://' },
-    spotify: { name: 'Spotify', url: 'https://open.spotify.com', packageName: 'com.spotify.music', appScheme: 'spotify://' },
-    facebook: { name: 'Facebook', url: 'https://www.facebook.com', packageName: 'com.facebook.katana', appScheme: 'fb://' },
-    fb: { name: 'Facebook', url: 'https://www.facebook.com', packageName: 'com.facebook.katana', appScheme: 'fb://' },
-    twitter: { name: 'X (Twitter)', url: 'https://x.com', packageName: 'com.twitter.android', appScheme: 'twitter://' },
-    x: { name: 'X (Twitter)', url: 'https://x.com', packageName: 'com.twitter.android', appScheme: 'twitter://' },
-    telegram: { name: 'Telegram', url: 'https://web.telegram.org', packageName: 'org.telegram.messenger', appScheme: 'tg://' },
-    snapchat: { name: 'Snapchat', url: 'https://www.snapchat.com', packageName: 'com.snapchat.android', appScheme: 'snapchat://' },
-    truecaller: { name: 'Truecaller', url: 'https://www.truecaller.com', packageName: 'com.truecaller', appScheme: 'truecaller://' },
-    chrome: { name: 'Google Chrome', url: 'https://www.google.com', packageName: 'com.android.chrome', appScheme: 'googlechrome://' },
-    google: { name: 'Google Search', url: 'https://www.google.com', packageName: 'com.google.android.googlequicksearchbox' },
-    gmail: { name: 'Gmail', url: 'https://mail.google.com', packageName: 'com.google.android.gm', appScheme: 'googlegmail://' },
-    mail: { name: 'Gmail', url: 'https://mail.google.com', packageName: 'com.google.android.gm' },
-    maps: { name: 'Google Maps', url: 'https://maps.google.com', packageName: 'com.google.android.apps.maps', appScheme: 'geo:0,0?q=' },
-    camera: { name: 'Camera', url: 'https://www.google.com', packageName: 'com.android.camera', intentUrl: 'intent:#Intent;action=android.media.action.IMAGE_CAPTURE;end' },
-    calculator: { name: 'Calculator', url: 'https://www.google.com', packageName: 'com.google.android.calculator' },
-    calc: { name: 'Calculator', url: 'https://www.google.com', packageName: 'com.google.android.calculator' },
-    clock: { name: 'Clock', url: 'https://www.google.com', packageName: 'com.google.android.deskclock' },
-    alarm: { name: 'Clock & Alarm', url: 'https://www.google.com', packageName: 'com.google.android.deskclock' },
-    gallery: { name: 'Gallery / Photos', url: 'https://photos.google.com', packageName: 'com.google.android.apps.photos' },
-    photos: { name: 'Photos', url: 'https://photos.google.com', packageName: 'com.google.android.apps.photos' },
-    jiocinema: { name: 'JioCinema', url: 'https://www.jiocinema.com', packageName: 'com.jio.media.ondemand', appScheme: 'jiocinema://' },
-    jiotv: { name: 'JioTV', url: 'https://jiotv.jio.com', packageName: 'com.jio.jiotv', appScheme: 'jiotv://' },
-    hotstar: { name: 'Disney+ Hotstar', url: 'https://www.hotstar.com', packageName: 'in.startv.hotstar', appScheme: 'hotstar://' },
-    wynk: { name: 'Wynk Music', url: 'https://wynk.in', packageName: 'com.pop.android.app', appScheme: 'wynk://' },
-    amazon: { name: 'Amazon', url: 'https://www.amazon.in', packageName: 'com.amazon.mShop.android.shopping' },
-    flipkart: { name: 'Flipkart', url: 'https://www.flipkart.com', packageName: 'com.flipkart.android' },
-    zomato: { name: 'Zomato', url: 'https://www.zomato.com', packageName: 'com.application.zomato' },
-    swiggy: { name: 'Swiggy', url: 'https://www.swiggy.com', packageName: 'in.swiggy.android' },
-    uber: { name: 'Uber', url: 'https://www.uber.com', packageName: 'com.ubercab' },
-    ola: { name: 'Ola Cabs', url: 'https://www.olacabs.com', packageName: 'com.olacabs.customer' },
-    netflix: { name: 'Netflix', url: 'https://www.netflix.com', packageName: 'com.netflix.mediaclient', appScheme: 'nflx://' },
-    prime: { name: 'Prime Video', url: 'https://www.primevideo.com', packageName: 'com.amazon.avod.thirdpartyclient' },
-    inshot: { name: 'InShot', url: 'https://inshot.com', packageName: 'com.camerasideas.instashot' },
-    canva: { name: 'Canva', url: 'https://www.canva.com', packageName: 'com.canva.editor' },
-    linkedin: { name: 'LinkedIn', url: 'https://www.linkedin.com', packageName: 'com.linkedin.android' },
-    pinterest: { name: 'Pinterest', url: 'https://www.pinterest.com', packageName: 'com.pinterest' },
-    discord: { name: 'Discord', url: 'https://discord.com', packageName: 'com.discord' },
-    playstore: { name: 'Google Play Store', url: 'https://play.google.com', packageName: 'com.android.vending' },
-    store: { name: 'Google Play Store', url: 'https://play.google.com', packageName: 'com.android.vending' },
+    'youtube': { name: 'YouTube', url: 'https://www.youtube.com', packageName: 'com.google.android.youtube', appScheme: 'vnd.youtube://' },
+    'yt': { name: 'YouTube', url: 'https://www.youtube.com', packageName: 'com.google.android.youtube', appScheme: 'vnd.youtube://' },
+    'whatsapp': { name: 'WhatsApp', url: 'https://web.whatsapp.com', packageName: 'com.whatsapp', appScheme: 'whatsapp://' },
+    'instagram': { name: 'Instagram', url: 'https://www.instagram.com', packageName: 'com.instagram.android', appScheme: 'instagram://app' },
+    'insta': { name: 'Instagram', url: 'https://www.instagram.com', packageName: 'com.instagram.android', appScheme: 'instagram://app' },
+    'phonepe': { name: 'PhonePe', url: 'https://www.phonepe.com', packageName: 'com.phonepe.app', appScheme: 'phonepe://' },
+    'paytm': { name: 'Paytm', url: 'https://paytm.com', packageName: 'net.one97.paytm', appScheme: 'paytm://' },
+    'gpay': { name: 'Google Pay', url: 'https://pay.google.com', packageName: 'com.google.android.apps.nfc.plugin.mosa.prod', appScheme: 'gpay://' },
+    'google pay': { name: 'Google Pay', url: 'https://pay.google.com', packageName: 'com.google.android.apps.nfc.plugin.mosa.prod', appScheme: 'gpay://' },
+    'googlepay': { name: 'Google Pay', url: 'https://pay.google.com', packageName: 'com.google.android.apps.nfc.plugin.mosa.prod', appScheme: 'gpay://' },
+    'bhim': { name: 'BHIM UPI', url: 'https://www.bhimupi.org.in', packageName: 'in.org.npci.upiapp', appScheme: 'upi://' },
+    'cred': { name: 'CRED', url: 'https://cred.club', packageName: 'com.dreamplug.androidapp' },
+    'spotify': { name: 'Spotify', url: 'https://open.spotify.com', packageName: 'com.spotify.music', appScheme: 'spotify://' },
+    'facebook': { name: 'Facebook', url: 'https://www.facebook.com', packageName: 'com.facebook.katana', appScheme: 'fb://' },
+    'fb': { name: 'Facebook', url: 'https://www.facebook.com', packageName: 'com.facebook.katana', appScheme: 'fb://' },
+    'twitter': { name: 'X (Twitter)', url: 'https://x.com', packageName: 'com.twitter.android', appScheme: 'twitter://' },
+    'x': { name: 'X (Twitter)', url: 'https://x.com', packageName: 'com.twitter.android', appScheme: 'twitter://' },
+    'telegram': { name: 'Telegram', url: 'https://web.telegram.org', packageName: 'org.telegram.messenger', appScheme: 'tg://' },
+    'snapchat': { name: 'Snapchat', url: 'https://www.snapchat.com', packageName: 'com.snapchat.android', appScheme: 'snapchat://' },
+    'truecaller': { name: 'Truecaller', url: 'https://www.truecaller.com', packageName: 'com.truecaller', appScheme: 'truecaller://' },
+    'chrome': { name: 'Google Chrome', url: 'https://www.google.com', packageName: 'com.android.chrome', appScheme: 'googlechrome://' },
+    'google': { name: 'Google Search', url: 'https://www.google.com', packageName: 'com.google.android.googlequicksearchbox' },
+    'gmail': { name: 'Gmail', url: 'https://mail.google.com', packageName: 'com.google.android.gm', appScheme: 'googlegmail://' },
+    'maps': { name: 'Google Maps', url: 'https://maps.google.com', packageName: 'com.google.android.apps.maps', appScheme: 'geo:0,0?q=' },
+    'google maps': { name: 'Google Maps', url: 'https://maps.google.com', packageName: 'com.google.android.apps.maps', appScheme: 'geo:0,0?q=' },
+    'camera': { name: 'Camera', url: 'https://www.google.com', packageName: 'com.android.camera', intentUrl: 'intent:#Intent;action=android.media.action.IMAGE_CAPTURE;end' },
+    'calculator': { name: 'Calculator', url: 'https://www.google.com', packageName: 'com.google.android.calculator' },
+    'clock': { name: 'Clock & Alarm', url: 'https://www.google.com', packageName: 'com.google.android.deskclock' },
+    'gallery': { name: 'Gallery / Photos', url: 'https://photos.google.com', packageName: 'com.google.android.apps.photos' },
+    'photos': { name: 'Photos', url: 'https://photos.google.com', packageName: 'com.google.android.apps.photos' },
+    'playstore': { name: 'Google Play Store', url: 'https://play.google.com', packageName: 'com.android.vending', appScheme: 'market://' },
+    'play store': { name: 'Google Play Store', url: 'https://play.google.com', packageName: 'com.android.vending', appScheme: 'market://' },
+    'chatgpt': { name: 'ChatGPT', url: 'https://chatgpt.com', packageName: 'com.openai.chatgpt' },
+    'openai': { name: 'ChatGPT', url: 'https://chatgpt.com', packageName: 'com.openai.chatgpt' },
+    'airtel': { name: 'Airtel Thanks', url: 'https://www.airtel.in', packageName: 'com.myairtelapp', appScheme: 'airtel://' },
+    'airtel thanks': { name: 'Airtel Thanks', url: 'https://www.airtel.in', packageName: 'com.myairtelapp', appScheme: 'airtel://' },
+    'jio': { name: 'MyJio', url: 'https://www.jio.com', packageName: 'com.jio.myjio' },
+    'myjio': { name: 'MyJio', url: 'https://www.jio.com', packageName: 'com.jio.myjio' },
+    'jiocinema': { name: 'JioCinema', url: 'https://www.jiocinema.com', packageName: 'com.jio.media.ondemand', appScheme: 'jiocinema://' },
+    'jiotv': { name: 'JioTV', url: 'https://jiotv.jio.com', packageName: 'com.jio.jiotv', appScheme: 'jiotv://' },
+    'hotstar': { name: 'Disney+ Hotstar', url: 'https://www.hotstar.com', packageName: 'in.startv.hotstar', appScheme: 'hotstar://' },
+    'disney hotstar': { name: 'Disney+ Hotstar', url: 'https://www.hotstar.com', packageName: 'in.startv.hotstar', appScheme: 'hotstar://' },
+    'netflix': { name: 'Netflix', url: 'https://www.netflix.com', packageName: 'com.netflix.mediaclient', appScheme: 'nflx://' },
+    'prime video': { name: 'Amazon Prime Video', url: 'https://www.primevideo.com', packageName: 'com.amazon.avod.thirdpartyclient' },
+    'amazon prime': { name: 'Amazon Prime Video', url: 'https://www.primevideo.com', packageName: 'com.amazon.avod.thirdpartyclient' },
+    'amazon': { name: 'Amazon Shopping', url: 'https://www.amazon.in', packageName: 'com.amazon.mShop.android.shopping', appScheme: 'com.amazon.mobile.shopping://' },
+    'flipkart': { name: 'Flipkart', url: 'https://www.flipkart.com', packageName: 'com.flipkart.android', appScheme: 'flipkart://' },
+    'myntra': { name: 'Myntra', url: 'https://www.myntra.com', packageName: 'com.myntra.android', appScheme: 'myntra://' },
+    'meesho': { name: 'Meesho', url: 'https://www.meesho.com', packageName: 'com.meesho.supply', appScheme: 'meesho://' },
+    'nykaa': { name: 'Nykaa', url: 'https://www.nykaa.com', packageName: 'com.fsn.nykaa' },
+    'ajio': { name: 'Ajio', url: 'https://www.ajio.com', packageName: 'com.ril.ajio' },
+    'tata neu': { name: 'Tata Neu', url: 'https://www.tataneu.com', packageName: 'com.tatadigital.tcp' },
+    'zomato': { name: 'Zomato', url: 'https://www.zomato.com', packageName: 'com.application.zomato', appScheme: 'zomato://' },
+    'swiggy': { name: 'Swiggy', url: 'https://www.swiggy.com', packageName: 'in.swiggy.android', appScheme: 'swiggy://' },
+    'zepto': { name: 'Zepto', url: 'https://www.zeptonow.com', packageName: 'com.zepto.customer' },
+    'blinkit': { name: 'Blinkit', url: 'https://blinkit.com', packageName: 'com.grofers.customerapp' },
+    'uber': { name: 'Uber', url: 'https://www.uber.com', packageName: 'com.ubercab', appScheme: 'uber://' },
+    'ola': { name: 'Ola Cabs', url: 'https://www.olacabs.com', packageName: 'com.olacabs.customer', appScheme: 'olacabs://' },
+    'free fire': { name: 'Garena Free Fire', url: 'https://ff.garena.com', packageName: 'com.dts.freefireth' },
+    'bgmi': { name: 'BGMI', url: 'https://battlegroundsmobileindia.com', packageName: 'com.pubg.imobile' },
+    'pubg': { name: 'PUBG Mobile', url: 'https://pubgmobile.com', packageName: 'com.tencent.ig' },
+    'call of duty': { name: 'Call of Duty: Mobile', url: 'https://callofduty.com', packageName: 'com.activision.callofduty.shooter' },
+    'cod': { name: 'Call of Duty: Mobile', url: 'https://callofduty.com', packageName: 'com.activision.callofduty.shooter' },
+    'candy crush': { name: 'Candy Crush Saga', url: 'https://king.com', packageName: 'com.king.candycrushsaga' },
+    'subway surfers': { name: 'Subway Surfers', url: 'https://sybogames.com', packageName: 'com.kiloo.subwaysurf' },
+    'clash of clans': { name: 'Clash of Clans', url: 'https://supercell.com', packageName: 'com.supercell.clashofclans' },
+    'ludo king': { name: 'Ludo King', url: 'https://ludoking.com', packageName: 'com.ludo.king' },
+    'inshot': { name: 'InShot Video Editor', url: 'https://inshot.com', packageName: 'com.camerasideas.instashot' },
+    'canva': { name: 'Canva', url: 'https://www.canva.com', packageName: 'com.canva.editor' },
+    'kinemaster': { name: 'KineMaster', url: 'https://kinemaster.com', packageName: 'com.nexstreaming.app.kinemasterfree' },
+    'capcut': { name: 'CapCut', url: 'https://capcut.com', packageName: 'com.lemon.lvoverseas' },
+    'picsart': { name: 'Picsart', url: 'https://picsart.com', packageName: 'com.picsart.studio' },
+    'vlc': { name: 'VLC Player', url: 'https://videolan.org', packageName: 'org.videolan.vlc' },
+    'mx player': { name: 'MX Player', url: 'https://mxplayer.in', packageName: 'com.mxtech.videoplayer.ad' },
+    'duolingo': { name: 'Duolingo', url: 'https://www.duolingo.com', packageName: 'com.duolingo' },
+    'linkedin': { name: 'LinkedIn', url: 'https://www.linkedin.com', packageName: 'com.linkedin.android' },
+    'pinterest': { name: 'Pinterest', url: 'https://www.pinterest.com', packageName: 'com.pinterest' },
+    'discord': { name: 'Discord', url: 'https://discord.com', packageName: 'com.discord' },
+    'zoom': { name: 'Zoom', url: 'https://zoom.us', packageName: 'us.zoom.videomeetings' },
+    'teams': { name: 'Microsoft Teams', url: 'https://teams.microsoft.com', packageName: 'com.microsoft.teams' },
+    'google meet': { name: 'Google Meet', url: 'https://meet.google.com', packageName: 'com.google.android.apps.meetings' },
+    'meet': { name: 'Google Meet', url: 'https://meet.google.com', packageName: 'com.google.android.apps.meetings' },
+    'drive': { name: 'Google Drive', url: 'https://drive.google.com', packageName: 'com.google.android.apps.docs' },
+    'wynk': { name: 'Wynk Music', url: 'https://wynk.in', packageName: 'com.pop.android.app', appScheme: 'wynk://' },
+    'gaana': { name: 'Gaana', url: 'https://gaana.com', packageName: 'com.gaana' },
+    'zerodha': { name: 'Zerodha Kite', url: 'https://kite.zerodha.com', packageName: 'com.zerodha.kite3' },
+    'kite': { name: 'Zerodha Kite', url: 'https://kite.zerodha.com', packageName: 'com.zerodha.kite3' },
+    'groww': { name: 'Groww', url: 'https://groww.in', packageName: 'com.nextbillion.groww' },
+    'angel one': { name: 'Angel One', url: 'https://www.angelone.in', packageName: 'com.msf.angelmobile' },
+    'upstox': { name: 'Upstox', url: 'https://upstox.com', packageName: 'in.upstox.app' }
   };
 
   const triggerAppUnlock = (passcode: string = '111111') => {
     playIronManRoboticSound('hud_beep');
   };
 
-  const executeMobileAppLaunch = (appName: string): { name: string; url: string; intentUrl: string; packageName: string; appScheme?: string; playStoreUrl: string } => {
-    const appLower = appName.toLowerCase().trim();
+  const parseYouTubeChannelName = (input: string): string => {
+    if (!input) return lastYouTubeQueryRef.current || 'YouTube';
+    const lower = input.toLowerCase().trim();
+
+    // If input refers to previous channel context (e.g. "us channel", "is channel", "use", "usko", "channel", etc.)
+    const isReference = 
+      lower.includes('us channel') || 
+      lower.includes('is channel') || 
+      lower.includes('unka channel') || 
+      lower.includes('unke channel') ||
+      lower.includes('ye channel') ||
+      lower.includes('wo channel') ||
+      lower.includes('that channel') ||
+      lower.includes('this channel') ||
+      lower === 'us' || lower === 'is' || lower === 'wo' || lower === 'ye' ||
+      lower === 'channel' || lower === 'youtube' || lower === 'youtube channel' ||
+      lower.includes('usko') || lower.includes('use') || lower.includes('isko') ||
+      lower === 'subscribe' || lower === 'subscribe karlo' || lower === 'channel subscribe karlo' ||
+      lower === 'channel subscribe karo' || lower === 'channel ko subscribe karo';
+
+    if (isReference && lastYouTubeQueryRef.current) {
+      return lastYouTubeQueryRef.current;
+    }
+
+    // Clean conversational commands
+    let chan = input
+      .replace(/youtube channel subscribe karo|youtube channel subscribe kardo|youtube channel ko subscribe karo/gi, '')
+      .replace(/channel ko subscribe karlo|channel ko subscribe karo|channel ko subscribe kardo|channel subscribe karlo|channel subscribe karo|channel subscribe kardo/gi, '')
+      .replace(/subscribe to the channel|subscribe to channel|subscribe to|subscribe this channel|subscribe that channel/gi, '')
+      .replace(/channel ko follow karlo|channel ko follow karo|follow this channel|follow the channel/gi, '')
+      .replace(/aur us channel ko|aur is channel ko|us channel ko|is channel ko|unke channel ko|unka channel|is channel|us channel/gi, '')
+      .replace(/youtube pe|youtube par|youtube me|youtube/gi, '')
+      .replace(/channel|ko|pe|par|subscribe|karlo|karo|kardo|kijiye|karna|follow|aur|bhi|please|bhai/gi, '')
+      .trim();
+
+    if (!chan || chan === 'us' || chan === 'is' || chan === 'wo' || chan === 'ye') {
+      return lastYouTubeQueryRef.current || 'YouTube';
+    }
+
+    return chan;
+  };
+
+  const handleYouTubeSubscribe = (channelInput?: string) => {
+    const targetChannel = parseYouTubeChannelName(channelInput || '');
+    lastYouTubeQueryRef.current = targetChannel;
+
+    const cleanHandle = targetChannel.replace(/[@\s]/g, '');
+    // Sub confirmation prompt URL: brings up native dialog on YouTube
+    const subUrl = `https://www.youtube.com/@${encodeURIComponent(cleanHandle)}?sub_confirmation=1`;
+    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(targetChannel)}+channel`;
+    const ytAppScheme = `vnd.youtube://results?search_query=${encodeURIComponent(targetChannel)}`;
+
+    // Try opening YouTube app or subscription link
+    try {
+      const a = document.createElement('a');
+      a.href = subUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (e) {
+      window.open(subUrl, '_blank') || (window.location.href = subUrl);
+    }
+
+    // Also trigger custom app scheme if on mobile
+    setTimeout(() => {
+      if (!document.hidden) {
+        try {
+          const a = document.createElement('a');
+          a.href = ytAppScheme;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        } catch (e) {}
+      }
+    }, 400);
+
+    setSystemAlert(`OPENING YOUTUBE TO SUBSCRIBE: @${targetChannel.toUpperCase()} 🔔`);
+    playIronManRoboticSound('hud_beep');
+
+    return {
+      channelName: targetChannel,
+      subUrl,
+      searchUrl,
+      ytAppScheme
+    };
+  };
+
+  const executeMobileAppLaunch = (appName: string, searchQuery?: string): { name: string; url: string; intentUrl: string; packageName: string; appScheme?: string; playStoreUrl: string } => {
+    const rawLower = appName.toLowerCase().trim();
     setSystemAlert(`LAUNCHING ${appName.toUpperCase()}...`);
     playIronManRoboticSound('app_launch');
 
-    if (appLower.includes('setting')) {
+    // 1. Check if user specified an explicit website / URL (e.g. google.com, amazon.in, flipkart.com, chatgpt.com, wikipedia.org)
+    const isExplicitWebUrl = (input: string): boolean => {
+      const s = input.trim().toLowerCase();
+      if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('www.')) return true;
+      return /\.(com|in|org|net|io|co|ai|edu|gov|app|dev|me|online|store|tech)(\/.*)?$/i.test(s);
+    };
+
+    if (isExplicitWebUrl(rawLower)) {
+      const siteUrl = /^https?:\/\//i.test(rawLower) ? rawLower : `https://${rawLower.replace(/^www\./i, '')}`;
+      window.open(siteUrl, '_blank') || (window.location.href = siteUrl);
+      return {
+        name: appName,
+        url: siteUrl,
+        intentUrl: siteUrl,
+        packageName: 'com.android.chrome',
+        playStoreUrl: siteUrl
+      };
+    }
+
+    // Clean conversational prefixes & suffixes
+    const cleanApp = rawLower
+      .replace(/^open\s+|^launch\s+|^kholo\s+|^chalao\s+|\s+app$|\s+application$|\s+kholo$|\s+chalao$|\s+open$/g, '')
+      .trim();
+
+    // 2. Settings / Notes / Dialer native internal routes
+    if (cleanApp === 'setting' || cleanApp === 'settings') {
       setIsSettingsOpen(true);
       return { 
         name: 'System Settings', 
@@ -1795,7 +1962,7 @@ export default function App() {
         playStoreUrl: '#' 
       };
     }
-    if (appLower.includes('note') || appLower.includes('history')) {
+    if (cleanApp === 'note' || cleanApp === 'notes' || cleanApp === 'history') {
       setIsHistoryDrawerOpen(true);
       return { 
         name: 'Chat History & Notes', 
@@ -1805,7 +1972,7 @@ export default function App() {
         playStoreUrl: '#' 
       };
     }
-    if (appLower.includes('call') || appLower.includes('phone') || appLower.includes('dialer')) {
+    if (cleanApp === 'call' || cleanApp === 'phone' || cleanApp === 'dialer') {
       window.location.href = "tel:";
       return { 
         name: 'Phone Dialer', 
@@ -1816,72 +1983,141 @@ export default function App() {
       };
     }
 
-    let matchedKey = Object.keys(APP_URL_MAP).find(key => appLower.includes(key));
-    let targetName = appName;
-    let targetUrl = `https://www.google.com/search?q=${encodeURIComponent(appName)}`;
-    let packageName = `com.${appLower.replace(/[^a-z0-9]/g, '')}`;
-    let appScheme: string | undefined;
-    let customIntentUrl: string | undefined;
+    // 3. YouTube Search Handling (if searchQuery provided, or if query is embedded)
+    if (cleanApp === 'youtube' || cleanApp === 'yt') {
+      if (searchQuery && searchQuery.trim()) {
+        const q = searchQuery.trim();
+        lastYouTubeQueryRef.current = q;
+        const ytAppScheme = `vnd.youtube://results?search_query=${encodeURIComponent(q)}`;
+        const ytWebUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
 
-    if (matchedKey) {
-      const entry = APP_URL_MAP[matchedKey];
-      targetName = entry.name;
-      targetUrl = entry.url;
-      packageName = entry.packageName;
-      appScheme = entry.appScheme;
-      customIntentUrl = entry.intentUrl;
+        // Attempt launching YouTube app directly via scheme
+        try {
+          const a = document.createElement('a');
+          a.href = ytAppScheme;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        } catch (e) {}
+
+        // Fallback to web link if app scheme is not intercepted
+        setTimeout(() => {
+          if (!document.hidden) {
+            window.open(ytWebUrl, '_blank') || (window.location.href = ytWebUrl);
+          }
+        }, 800);
+
+        return {
+          name: `YouTube: "${q}"`,
+          url: ytWebUrl,
+          intentUrl: ytAppScheme,
+          packageName: 'com.google.android.youtube',
+          appScheme: ytAppScheme,
+          playStoreUrl: 'https://play.google.com/store/apps/details?id=com.google.android.youtube'
+        };
+      }
     }
 
-    const playStoreUrl = `https://play.google.com/store/apps/details?id=${packageName}`;
-    const fallbackWebUrl = targetUrl;
-    const intentUrl = customIntentUrl || `intent://#Intent;package=${packageName};action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;S.browser_fallback_url=${encodeURIComponent(fallbackWebUrl)};end`;
+    // 4. Strict matching against Known Apps Dictionary (Whole-word & exact match only)
+    let matchedKey: string | undefined = Object.keys(APP_URL_MAP).find(k => k === cleanApp);
 
-    // Direct YouTube / Web launch for instant redirect without blocking
-    if (appLower.includes('youtube') || appLower.includes('yt')) {
+    if (!matchedKey) {
+      const sortedKeys = Object.keys(APP_URL_MAP).sort((a, b) => b.length - a.length);
+      matchedKey = sortedKeys.find(k => {
+        const escaped = k.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const reg = new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'i');
+        return reg.test(cleanApp);
+      });
+    }
+
+    // A. Known App: Launch directly into phone app FIRST!
+    // Never force Play Store unless app is genuinely missing from the user's phone!
+    if (matchedKey) {
+      const entry = APP_URL_MAP[matchedKey];
+      const targetName = entry.name;
+      const packageName = entry.packageName;
+      const playStoreUrl = `https://play.google.com/store/apps/details?id=${packageName}`;
+      const webUrl = entry.url || playStoreUrl;
+      const appScheme = entry.appScheme;
+
+      // The direct launch target: appScheme (e.g. whatsapp://, vnd.youtube://, instagram://app) or webUrl
+      const launchTarget = appScheme || webUrl;
+
+      // Track if the app opened and user's browser lost focus
+      let appLaunchedSuccessfully = false;
+      const onAppLaunchSucceeded = () => {
+        appLaunchedSuccessfully = true;
+      };
+      document.addEventListener('visibilitychange', onAppLaunchSucceeded, { once: true });
+      window.addEventListener('pagehide', onAppLaunchSucceeded, { once: true });
+      window.addEventListener('blur', onAppLaunchSucceeded, { once: true });
+
+      // Trigger launch directly
       try {
-        window.open('https://www.youtube.com', '_blank') || (window.location.href = 'https://www.youtube.com');
-      } catch (e) {
-        window.location.href = 'https://www.youtube.com';
+        const a = document.createElement('a');
+        a.href = launchTarget;
+        if (!appScheme) {
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+        }
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch (err) {
+        window.open(launchTarget, '_blank') || (window.location.href = launchTarget);
       }
+
+      // If after 1.8 seconds the page is STILL foreground and visible, it means the app is NOT installed on phone!
+      // Only then redirect directly to the Google Play Store for this exact app!
+      setTimeout(() => {
+        document.removeEventListener('visibilitychange', onAppLaunchSucceeded);
+        window.removeEventListener('pagehide', onAppLaunchSucceeded);
+        window.removeEventListener('blur', onAppLaunchSucceeded);
+
+        if (!appLaunchedSuccessfully && !document.hidden) {
+          setSystemAlert(`APP NOT FOUND ON DEVICE: REDIRECTING TO PLAY STORE (${targetName.toUpperCase()})...`);
+          window.location.href = `market://details?id=${packageName}`;
+          setTimeout(() => {
+            if (!document.hidden) {
+              window.open(playStoreUrl, '_blank') || (window.location.href = playStoreUrl);
+            }
+          }, 400);
+        }
+      }, 1800);
+
       return {
-        name: 'YouTube',
-        url: 'https://www.youtube.com',
-        intentUrl,
-        packageName: 'com.google.android.youtube',
-        appScheme: 'vnd.youtube://',
+        name: targetName,
+        url: webUrl,
+        intentUrl: launchTarget,
+        packageName,
+        appScheme,
         playStoreUrl
       };
     }
 
-    // Attempt direct Android OS / Web App Launch without Play Store redirect
-    const isAndroid = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
+    // B. Unknown App or Specific App Not in Dictionary:
+    // User instruction: "aur agar yo app mere phone me nahi ho to play store me le jaye aur jis app ya website ka naam bola gaya ho yahi app ya website open karna ha usse milta julta app nahi open karna ha"
+    // Opens Google Play Store with that EXACT app searched (no loose or random app)
+    const exactPlayStoreUrl = `https://play.google.com/store/search?q=${encodeURIComponent(cleanApp)}&c=apps`;
+    const marketSearchUrl = `market://search?q=${encodeURIComponent(cleanApp)}&c=apps`;
+
     try {
-      if (isAndroid && intentUrl && intentUrl !== '#') {
-        window.location.href = intentUrl;
-      } else if (appScheme) {
-        window.location.href = appScheme;
-        setTimeout(() => {
-          if (!document.hidden && targetUrl && targetUrl !== '#') {
-            window.open(targetUrl, '_system') || window.open(targetUrl, '_blank');
-          }
-        }, 500);
-      } else if (targetUrl && targetUrl !== '#') {
-        window.open(targetUrl, '_system') || window.open(targetUrl, '_blank') || (window.location.href = targetUrl);
-      }
+      window.location.href = marketSearchUrl;
+      setTimeout(() => {
+        if (!document.hidden) {
+          window.open(exactPlayStoreUrl, '_blank') || (window.location.href = exactPlayStoreUrl);
+        }
+      }, 500);
     } catch (e) {
-      console.warn("Direct app launch fallback:", e);
-      if (targetUrl && targetUrl !== '#') {
-        window.open(targetUrl, '_system') || window.open(targetUrl, '_blank');
-      }
+      window.open(exactPlayStoreUrl, '_blank');
     }
 
-    return { 
-      name: targetName, 
-      url: targetUrl, 
-      intentUrl, 
-      packageName, 
-      appScheme, 
-      playStoreUrl 
+    return {
+      name: cleanApp,
+      url: exactPlayStoreUrl,
+      intentUrl: marketSearchUrl,
+      packageName: `market.search.${encodeURIComponent(cleanApp)}`,
+      playStoreUrl: exactPlayStoreUrl
     };
   };
 
@@ -1992,11 +2228,7 @@ export default function App() {
   const [historySearchQuery, setHistorySearchQuery] = useState('');
   const [currentSessionId, setCurrentSessionId] = useState<string>(() => {
     const activeP = (localStorage.getItem('active_persona') as 'jarvis' | 'rose') || 'jarvis';
-    const savedUser = localStorage.getItem('jarvis_authenticated_user') || localStorage.getItem('jarvis_google_user');
-    const userObj = savedUser ? JSON.parse(savedUser) : null;
-    const userEmail = userObj?.email ? userObj.email.toLowerCase().trim() : '';
-    const activeKey = getUserActiveSessionKey(activeP, userEmail);
-    return localStorage.getItem(activeKey) || `session_${activeP}_${Date.now()}`;
+    return `session_${activeP}_${Date.now()}`;
   });
 
   const activePersonaRef = useRef(activePersona);
@@ -2544,16 +2776,8 @@ export default function App() {
           setChatSessions(personaFiltered);
           localStorage.setItem(getUserStorageKey(activePersona, cleanEmail), JSON.stringify(personaFiltered));
 
-          // When opening/reopening app: if latest chat has user messages, open a fresh NEW chat session!
-          const latestSession = personaFiltered[0];
-          const hasUserMessages = latestSession.messages && latestSession.messages.some(m => m.role === 'user');
-
-          if (hasUserMessages) {
-            createNewChat(personaFiltered);
-          } else {
-            setCurrentSessionId(latestSession.id);
-            setMessages(latestSession.messages || []);
-          }
+          // When opening/reopening app: always start with a clean NEW chat session, preserving full history in the drawer
+          createNewChat(personaFiltered);
           isSessionsLoadedRef.current = true;
           return;
         }
@@ -2820,12 +3044,43 @@ export default function App() {
   }, [playingAudioMsgId]);
 
   const stopAudio = () => {
+    // 1. Chat message audio element
     if (currentAudioElRef.current) {
       try {
         currentAudioElRef.current.pause();
         currentAudioElRef.current.currentTime = 0;
+        currentAudioElRef.current.src = '';
+        currentAudioElRef.current = null;
       } catch (e) {}
     }
+    // 2. Live voice audio element
+    if (liveAudioElementRef.current) {
+      try {
+        liveAudioElementRef.current.pause();
+        liveAudioElementRef.current.currentTime = 0;
+        liveAudioElementRef.current.src = '';
+        liveAudioElementRef.current = null;
+      } catch (e) {}
+    }
+    // 3. Background voice audio element
+    if (backgroundAudioRef.current) {
+      try {
+        backgroundAudioRef.current.pause();
+        backgroundAudioRef.current.currentTime = 0;
+        backgroundAudioRef.current.src = '';
+        backgroundAudioRef.current = null;
+      } catch (e) {}
+    }
+    // 4. Web Audio Buffer Source
+    if (currentAudioSourceRef.current) {
+      try {
+        if ('stop' in currentAudioSourceRef.current && typeof currentAudioSourceRef.current.stop === 'function') {
+          currentAudioSourceRef.current.stop();
+        }
+      } catch (e) {}
+      currentAudioSourceRef.current = null;
+    }
+    // 5. Browser speech synthesis
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
         window.speechSynthesis.cancel();
@@ -2834,6 +3089,9 @@ export default function App() {
     setIsSpeaking(false);
     setPlayingAudioMsgId(null);
     playingAudioMsgIdRef.current = null;
+    liveVoiceTurnIdRef.current++;
+    backgroundVoiceTurnIdRef.current++;
+    setLiveJarvisReply('');
   };
 
   const handleToggleAudioForMsg = async (msg: Message) => {
@@ -3034,7 +3292,14 @@ export default function App() {
         }
       });
     } else if (call.name === 'open_app') {
-      executeMobileAppLaunch(app);
+      executeMobileAppLaunch(app, call.args.query);
+    } else if (call.name === 'search_youtube') {
+      const q = call.args.query || 'trending';
+      executeMobileAppLaunch('youtube', q);
+      setSystemAlert(`YOUTUBE SEARCH PROTOCOL: "${q.toUpperCase()}" 🎬`);
+    } else if (call.name === 'subscribe_youtube_channel') {
+      const channel = call.args.channel_name || '';
+      handleYouTubeSubscribe(channel);
     } else if (call.name === 'control_network_hardware') {
       handleControlNetworkHardware(action, call.args.enable);
     } else if (call.name === 'spawn_ai_subagent_matrix') {
@@ -3712,6 +3977,19 @@ export default function App() {
     let messageToSend = (overrideInput || input).trim();
     if (!messageToSend && attachedFiles.length === 0) return;
 
+    // Direct Voice/Speech Abort or Interruption Command
+    const lowerTrimmed = messageToSend.toLowerCase();
+    const isAbortCmd = [
+      'stop', 'abort', 'cancel', 'shut up', 'chup', 'chup raho', 'ruk jao', 'ruko', 
+      'shant ho jao', 'band karo', 'pause', 'stop speaking', 'jarvis stop', 'rose stop', 'quiet'
+    ].includes(lowerTrimmed);
+
+    if (isAbortCmd) {
+      if (!overrideInput) setInput('');
+      setSystemAlert("AUDIO INTERRUPTED: Speech playback cancelled.");
+      return;
+    }
+
     if (attachedFiles.length > 0) {
       const fileContents = attachedFiles.map((file, idx) => {
         if (file.type === 'text') {
@@ -4354,12 +4632,82 @@ export default function App() {
 
         const isAlarmDetected = !!createdAlarmObj || isAlarmCall;
 
+        let executedAppLaunchDetails: any = null;
+        let executedYTSubscribeDetails: any = null;
+
+        // Direct YouTube Search detection if not captured as tool call
+        const isYTSearchKeyword = (lowerInput.includes('youtube') || lowerInput.includes('yt')) && (
+          lowerInput.includes('search') || 
+          lowerInput.includes('khojo') || 
+          lowerInput.includes('dhundo') || 
+          lowerInput.includes('chalao') || 
+          lowerInput.includes('play') || 
+          lowerInput.includes('video') ||
+          lowerInput.includes('dikhao')
+        );
+
+        if (!functionCallPart && isYTSearchKeyword) {
+          const ytQuery = messageToSend
+            .replace(/open youtube and search for|open youtube and search|open youtube search|search on youtube for|search on youtube|search youtube for|search youtube/gi, '')
+            .replace(/youtube open karo aur|youtube kholo aur|youtube pe|youtube par|youtube me|youtube me se/gi, '')
+            .replace(/search karo|search kijiye|khojo|dhundo|dikhao|chalao|play karo|video dikhao|video chalao|search/gi, '')
+            .trim();
+          if (ytQuery) {
+            executedAppLaunchDetails = executeMobileAppLaunch('youtube', ytQuery);
+            if (!jarvisText || jarvisText.length < 10) {
+              jarvisText = activePersona === 'rose'
+                ? `Ji Sir, YouTube par "${ytQuery}" search kar diya hai!`
+                : `Sir, executing YouTube search for "${ytQuery}". Results displayed.`;
+            }
+          }
+        }
+
+        // Direct YouTube Channel Subscribe detection if not captured as tool call
+        const isYTSubscribeKeyword = !functionCallPart && (lowerInput.includes('subscribe') || lowerInput.includes('follow')) && (
+          lowerInput.includes('channel') || 
+          lowerInput.includes('youtube') || 
+          lowerInput.includes('karlo') || 
+          lowerInput.includes('karo') ||
+          lowerInput.includes('kardo') ||
+          lowerInput.includes('us')
+        );
+
+        if (isYTSubscribeKeyword) {
+          const chanName = parseYouTubeChannelName(messageToSend);
+          executedYTSubscribeDetails = handleYouTubeSubscribe(chanName);
+          if (!jarvisText || jarvisText.length < 10) {
+            jarvisText = activePersona === 'rose'
+              ? (chanName ? `Ji Sir, @${chanName} channel ko subscribe karne ke liye YouTube open kar diya hai!` : `Ji Sir, channel subscribe confirmation page open kar diya hai!`)
+              : (chanName ? `Sir, opening YouTube subscription confirmation page for @${chanName}.` : `Sir, YouTube channel subscription link initialized.`);
+          }
+        }
+
         if (functionCallPart) {
-          handleToolCall(functionCallPart.functionCall);
+          const toolName = functionCallPart.functionCall?.name;
+          const toolArgs = functionCallPart.functionCall?.args || {};
+
+          if (toolName === 'open_app') {
+            executedAppLaunchDetails = executeMobileAppLaunch((toolArgs.app_name as string) || 'Airtel Thanks', toolArgs.query as string);
+          } else if (toolName === 'search_youtube') {
+            const q = (toolArgs.query as string) || 'trending';
+            executedAppLaunchDetails = executeMobileAppLaunch('youtube', q);
+          } else if (toolName === 'subscribe_youtube_channel') {
+            const chan = parseYouTubeChannelName((toolArgs.channel_name as string) || '');
+            executedYTSubscribeDetails = handleYouTubeSubscribe(chan);
+          } else {
+            handleToolCall(functionCallPart.functionCall);
+          }
+
           if (!jarvisText) {
-            const toolName = functionCallPart.functionCall?.name;
-            const toolArgs = functionCallPart.functionCall?.args || {};
-            if (toolName === 'open_app') {
+            if (toolName === 'search_youtube') {
+              jarvisText = activePersona === 'rose'
+                ? `Ji Sir! YouTube par "${toolArgs.query || 'query'}" search kar diya hai.`
+                : `Sir, executing YouTube search for "${toolArgs.query || 'query'}".`;
+            } else if (toolName === 'subscribe_youtube_channel') {
+              jarvisText = activePersona === 'rose'
+                ? `Ji Sir! ${toolArgs.channel_name ? '@' + toolArgs.channel_name + ' channel ko' : 'Channel ko'} subscribe karne ke liye page open kar diya hai.`
+                : `Sir, opening YouTube subscription page for ${toolArgs.channel_name ? '@' + toolArgs.channel_name : 'channel'}.`;
+            } else if (toolName === 'open_app') {
               jarvisText = activePersona === 'rose'
                 ? `Ji Sir! Main ${toolArgs.app_name || 'app'} open kar rahi hoon.`
                 : `Sir, opening ${toolArgs.app_name || 'application'} protocol.`;
@@ -4513,10 +4861,10 @@ export default function App() {
           isHotspot: functionCallPart?.functionCall?.name === 'toggle_hotspot',
           isMusic: isMusicDetected,
           isAlarm: isAlarmDetected,
-          isAppLaunch: functionCallPart?.functionCall?.name === 'open_app',
-          appLaunchDetails: functionCallPart?.functionCall?.name === 'open_app'
-            ? executeMobileAppLaunch((functionCallPart.functionCall.args?.app_name as string) || 'Airtel Thanks')
-            : undefined,
+          isAppLaunch: !!executedAppLaunchDetails,
+          appLaunchDetails: executedAppLaunchDetails || undefined,
+          isYTSubscribe: !!executedYTSubscribeDetails,
+          ytSubscribeDetails: executedYTSubscribeDetails || undefined,
           alarmDetails: createdAlarmObj ? {
             time: createdAlarmObj.time,
             period: createdAlarmObj.period,
@@ -4613,7 +4961,94 @@ export default function App() {
       }
     };
 
-    // 1. Google / Web Search: "search [query]", "google pe search karo [query]", "khojo [query]"
+    // 1. YouTube Search: "youtube open karo aur [query] search karo", "youtube pe [query] search karo", "open youtube and search [query]", "youtube me [query] chalao", etc.
+    const isYTCmd = cmdLower.includes('youtube') || cmdLower.includes('yt');
+    const isYTSearch = isYTCmd && (
+      cmdLower.includes('search') || 
+      cmdLower.includes('khojo') || 
+      cmdLower.includes('dhundo') || 
+      cmdLower.includes('chalao') || 
+      cmdLower.includes('play') || 
+      cmdLower.includes('video') ||
+      cmdLower.includes('dikhao')
+    );
+    if (isYTSearch) {
+      const ytQuery = cmd
+        .replace(/open youtube and search for|open youtube and search|open youtube search|search on youtube for|search on youtube|search youtube for|search youtube/gi, '')
+        .replace(/youtube open karo aur|youtube kholo aur|youtube pe|youtube par|youtube me|youtube me se/gi, '')
+        .replace(/search karo|search kijiye|khojo|dhundo|dikhao|chalao|play karo|video dikhao|video chalao|search/gi, '')
+        .trim();
+      if (ytQuery) {
+        executeMobileAppLaunch('youtube', ytQuery);
+        const reply = activePersona === 'rose'
+          ? `Ji Sir, YouTube par "${ytQuery}" search kar diya hai!`
+          : `Sir, executing YouTube search for "${ytQuery}". Results on screen.`;
+        speakRealVoiceBackground(reply, activePersona, () => {
+          if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
+        }, turnId);
+        sendNotification(activePersona === 'rose' ? "Rose YouTube Search" : "JARVIS YouTube Search", `Searching YouTube: ${ytQuery}`);
+        setSystemAlert(`BACKGROUND: YOUTUBE SEARCH "${ytQuery.toUpperCase()}" 🎬`);
+        logBackgroundConversation({
+          persona: activePersona,
+          userQuery: cmd,
+          aiReply: reply,
+          userEmail: currentUser?.email || 'abhishekjvfg@gmail.com'
+        });
+        return;
+      }
+    }
+
+    // 2. YouTube Channel Subscribe / Follow: "us channel ko subscribe karlo", "channel subscribe karo", "[name] ko subscribe karo"
+    const isYTSubscribe = (cmdLower.includes('subscribe') || cmdLower.includes('follow')) && (
+      cmdLower.includes('channel') || 
+      cmdLower.includes('youtube') || 
+      cmdLower.includes('karlo') || 
+      cmdLower.includes('karo') ||
+      cmdLower.includes('kardo') ||
+      cmdLower.includes('us')
+    );
+    if (isYTSubscribe) {
+      const chanName = parseYouTubeChannelName(cmd);
+      handleYouTubeSubscribe(chanName);
+      const reply = activePersona === 'rose'
+        ? (chanName ? `Ji Sir, @${chanName} channel ko subscribe karne ke liye YouTube open kar diya hai!` : `Ji Sir, channel ko subscribe karne ke liye YouTube page open kar diya hai!`)
+        : (chanName ? `Sir, opening YouTube subscription confirmation page for @${chanName}.` : `Sir, YouTube channel subscription uplink launched.`);
+      speakRealVoiceBackground(reply, activePersona, () => {
+        if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
+      }, turnId);
+      sendNotification(activePersona === 'rose' ? "Rose YouTube Action" : "JARVIS YouTube Action", `Subscribing to channel`);
+      setSystemAlert(`BACKGROUND: YOUTUBE SUBSCRIBE LINK ACTIVATED 🔔`);
+      logBackgroundConversation({
+        persona: activePersona,
+        userQuery: cmd,
+        aiReply: reply,
+        userEmail: currentUser?.email || 'abhishekjvfg@gmail.com'
+      });
+      return;
+    }
+
+    // 3. Set Alarm: "alarm lagao 7 baje ka", "set alarm for 6 am", "subah 6 baje ka alarm", "alarm set karo"
+    const parsedAlarm = (cmdLower.includes('alarm') || cmdLower.includes('jaga dena') || cmdLower.includes('subah') || cmdLower.includes('wake up') || cmdLower.includes('baje')) ? parseAlarmCommand(cmd) : null;
+    if (parsedAlarm) {
+      const alarmObj = addNewAlarm(parsedAlarm.time, parsedAlarm.period, parsedAlarm.label);
+      const reply = activePersona === 'rose'
+        ? `Ji Sir! Aapka ${alarmObj.time} ka alarm set kar diya hai aur Clock app se sync kar diya hai!`
+        : `Sir, your alarm for ${alarmObj.time} is configured and synchronized with your system clock.`;
+      speakRealVoiceBackground(reply, activePersona, () => {
+        if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
+      }, turnId);
+      sendNotification(activePersona === 'rose' ? "Rose Alarm Set" : "JARVIS Alarm Set", `Alarm set for ${alarmObj.time}`);
+      setSystemAlert(`BACKGROUND: ALARM SET FOR ${alarmObj.time} ⏰`);
+      logBackgroundConversation({
+        persona: activePersona,
+        userQuery: cmd,
+        aiReply: reply,
+        userEmail: currentUser?.email || 'abhishekjvfg@gmail.com'
+      });
+      return;
+    }
+
+    // 4. Google / Web Search: "search [query]", "google pe search karo [query]", "khojo [query]"
     if (cmdLower.startsWith('search ') || cmdLower.includes('google search') || cmdLower.includes('google pe search') || cmdLower.includes('khojo')) {
       const query = cmdLower
         .replace(/google search|google pe search karo|google pe search|search karo|khojo|search for|search/gi, '')
@@ -4639,7 +5074,7 @@ export default function App() {
       }
     }
 
-    // 2. WhatsApp Message: "message [x] on whatsapp", "whatsapp [x]"
+    // 5. WhatsApp Message: "message [x] on whatsapp", "whatsapp [x]"
     if (cmdLower.includes('whatsapp') && (cmdLower.includes('message') || cmdLower.includes('send') || cmdLower.includes('bhejo') || cmdLower.includes('chat'))) {
       const messageText = cmdLower.replace(/whatsapp|message|send|bhejo|ko|pe|chat/gi, '').trim();
       const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(messageText || 'Hello!')}`;
@@ -4661,7 +5096,7 @@ export default function App() {
       return;
     }
 
-    // 3. Direct Phone Calling: "call [name/number]" or "phone lagao [name/number]"
+    // 6. Direct Phone Calling: "call [name/number]" or "phone lagao [name/number]"
     if (cmdLower.startsWith('call ') || cmdLower.includes('phone lagao') || cmdLower.includes('call karo')) {
       const target = cmdLower.replace(/call karo|phone lagao|call/gi, '').trim();
       const telUrl = target ? `tel:${encodeURIComponent(target)}` : 'tel:';
@@ -4683,12 +5118,18 @@ export default function App() {
       return;
     }
 
-    // 4. Open Mobile App: "open [app]", "launch [app]", "[app] kholo"
+    // 7. Open Mobile App or Website: "open [app]", "launch [app]", "[app] kholo", "open [domain.com]"
     const openKeywordMatches = cmdLower.includes('open') || cmdLower.includes('kholo') || cmdLower.includes('launch') || cmdLower.includes('chalao');
     if (openKeywordMatches) {
-      const appName = cmdLower.replace(/open app|launch app|kholo app|chalao app|open|launch|kholo|chalao/gi, '').trim();
+      let appName = cmdLower.replace(/open app|launch app|kholo app|chalao app|open|launch|kholo|chalao/gi, '').trim();
+      let appQuery = '';
+      if (appName.includes(' and search ') || appName.includes(' aur search ')) {
+        const parts = appName.split(/ and search | aur search /);
+        appName = parts[0].trim();
+        appQuery = parts[1]?.trim() || '';
+      }
       if (appName) {
-        const res = executeMobileAppLaunch(appName);
+        const res = executeMobileAppLaunch(appName, appQuery);
         const reply = activePersona === 'rose'
           ? `Ji Sir, ${res.name} open kar diya hai.`
           : `Sir, launching ${res.name} protocol.`;
@@ -4763,6 +5204,25 @@ export default function App() {
         for (const call of functionCalls) {
           try {
             handleToolCall(call);
+            if (!replyText || replyText.length < 5) {
+              if (call.name === 'search_youtube') {
+                replyText = activePersona === 'rose'
+                  ? `Ji Sir! YouTube par "${call.args?.query || 'query'}" search kar diya hai.`
+                  : `Sir, executing YouTube search for "${call.args?.query || 'query'}".`;
+              } else if (call.name === 'subscribe_youtube_channel') {
+                replyText = activePersona === 'rose'
+                  ? `Ji Sir! Channel subscribe confirmation link open kar di hai.`
+                  : `Sir, YouTube channel subscription link initialized.`;
+              } else if (call.name === 'set_alarm') {
+                replyText = activePersona === 'rose'
+                  ? `Ji Sir! Aapka ${call.args?.time || 'alarm'} ka alarm set kar diya hai!`
+                  : `Sir, your alarm for ${call.args?.time || 'requested time'} is set and synced.`;
+              } else if (call.name === 'open_app') {
+                replyText = activePersona === 'rose'
+                  ? `Ji Sir, ${call.args?.app_name || 'app'} open kar diya hai.`
+                  : `Sir, opening ${call.args?.app_name || 'application'}.`;
+              }
+            }
           } catch (toolErr) {
             console.warn("Background mode tool execution notice:", toolErr);
           }
@@ -6237,6 +6697,85 @@ export default function App() {
                           </div>
                         </div>
                       </div>
+                    ) : msg.isYTSubscribe ? (
+                      <div className="space-y-3 font-mono">
+                        <p className={`text-xs sm:text-sm leading-relaxed italic ${activePersona === 'rose' ? 'text-pink-200' : 'text-cyan-200'}`}>
+                          {msg.content}
+                        </p>
+                        <div className="p-4 rounded-xl border-2 text-left space-y-3 relative overflow-hidden shadow-lg bg-gradient-to-b from-[#1c0707] to-[#2b0c0c] border-red-500/60 shadow-[0_0_25px_rgba(239,68,68,0.25)]">
+                          <div className="flex items-center justify-between pb-2.5 border-b border-white/10">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-9 h-9 rounded-xl flex items-center justify-center border font-black text-sm bg-red-500/20 border-red-400 text-red-400">
+                                <Youtube className="w-5 h-5 animate-pulse" />
+                              </div>
+                              <div>
+                                <div className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
+                                  <span>@{msg.ytSubscribeDetails?.channelName || 'YouTube'}</span>
+                                  <span className="px-1.5 py-0.2 bg-red-500/20 text-red-300 border border-red-500/40 text-[8px] rounded font-bold">
+                                    SUBSCRIBE 🔔
+                                  </span>
+                                </div>
+                                <div className="text-[9px] text-zinc-400 font-sans">
+                                  DIRECT CHANNEL SUBSCRIPTION PROMPT
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleControlDevice('enable_floating_widget')}
+                              className="text-[9px] font-bold px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-zinc-300 hover:text-white transition-all flex items-center gap-1"
+                              title="Minimize to Floating ARC Logo Mode"
+                            >
+                              <Minimize2 className="w-3 h-3 text-red-400" />
+                              <span className="hidden sm:inline">Floating HUD</span>
+                            </button>
+                          </div>
+
+                          <div className="p-2.5 bg-black/60 border border-white/10 rounded-lg text-[10px] space-y-1.5">
+                            <div className="flex items-center justify-between text-zinc-300 font-sans">
+                              <span>Target Channel:</span>
+                              <span className="font-mono font-bold text-red-400">@{msg.ytSubscribeDetails?.channelName || 'YouTube'}</span>
+                            </div>
+                            <div className="text-[9px] text-zinc-400 truncate font-mono bg-zinc-950 p-1.5 rounded border border-white/5">
+                              {msg.ytSubscribeDetails?.subUrl || 'https://www.youtube.com'}
+                            </div>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="grid grid-cols-2 gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const subUrl = msg.ytSubscribeDetails?.subUrl || 'https://www.youtube.com';
+                                const appScheme = msg.ytSubscribeDetails?.ytAppScheme;
+                                setSystemAlert(`OPENING YOUTUBE TO SUBSCRIBE: @${(msg.ytSubscribeDetails?.channelName || 'YOUTUBE').toUpperCase()} 🔔`);
+                                if (appScheme) {
+                                  try { window.location.href = appScheme; } catch (e) {}
+                                }
+                                setTimeout(() => {
+                                  window.open(subUrl, '_blank') || (window.location.href = subUrl);
+                                }, 200);
+                              }}
+                              className="py-2.5 px-3 rounded-lg font-black text-xs flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                              <span>SUBSCRIBE NOW 🔔</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const targetUrl = msg.ytSubscribeDetails?.searchUrl || `https://www.youtube.com/results?search_query=${encodeURIComponent(msg.ytSubscribeDetails?.channelName || 'YouTube')}`;
+                                window.open(targetUrl, '_blank');
+                              }}
+                              className="py-2.5 px-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 transition-all active:scale-95"
+                            >
+                              <Tv className="w-4 h-4 text-red-400" />
+                              <span>VIEW VIDEOS</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     ) : msg.isAppLaunch ? (
                       <div className="space-y-3 font-mono">
                         <p className={`text-xs sm:text-sm leading-relaxed italic ${activePersona === 'rose' ? 'text-pink-200' : 'text-cyan-200'}`}>
@@ -6323,6 +6862,76 @@ export default function App() {
                             >
                               <Tv className="w-4 h-4 text-emerald-400" />
                               <span>OPEN WEB VERSION</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : msg.isYTSubscribe ? (
+                      <div className="space-y-3 font-mono">
+                        <p className={`text-xs sm:text-sm leading-relaxed italic ${activePersona === 'rose' ? 'text-pink-200' : 'text-cyan-200'}`}>
+                          {msg.content}
+                        </p>
+                        <div className="p-4 rounded-xl border-2 border-red-500/60 bg-gradient-to-b from-[#180707] to-[#250d0d] shadow-[0_0_25px_rgba(239,68,68,0.25)] text-left space-y-3 relative overflow-hidden">
+                          <div className="flex items-center justify-between pb-2.5 border-b border-white/10">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-red-600/20 border border-red-500 text-red-400 font-black text-sm">
+                                <Youtube className="w-5 h-5 animate-pulse" />
+                              </div>
+                              <div>
+                                <div className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
+                                  <span>{msg.ytSubscribeDetails?.channelName ? `@${msg.ytSubscribeDetails.channelName}` : 'YouTube Channel'}</span>
+                                  <span className="px-1.5 py-0.5 bg-red-500/20 text-red-300 border border-red-500/40 text-[8px] rounded font-bold">
+                                    SUBSCRIBE PROTOCOL
+                                  </span>
+                                </div>
+                                <div className="text-[9px] text-zinc-400 font-sans">
+                                  DIRECT 1-TAP CHANNEL SUBSCRIPTION
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="p-2.5 bg-black/60 border border-white/10 rounded-lg text-[10px] space-y-1.5">
+                            <div className="flex items-center justify-between text-zinc-300 font-sans">
+                              <span>Target Channel Action:</span>
+                              <span className="font-mono font-bold text-red-400">sub_confirmation=1</span>
+                            </div>
+                            <div className="text-[9px] text-zinc-400 truncate font-mono bg-zinc-950 p-1.5 rounded border border-white/5">
+                              {msg.ytSubscribeDetails?.subUrl || 'https://www.youtube.com?sub_confirmation=1'}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const sub = msg.ytSubscribeDetails;
+                                if (sub?.subUrl) {
+                                  if (sub.ytAppScheme) {
+                                    try { window.location.href = sub.ytAppScheme; } catch (e) {}
+                                  }
+                                  setTimeout(() => {
+                                    window.open(sub.subUrl, '_blank') || (window.location.href = sub.subUrl);
+                                  }, 150);
+                                }
+                              }}
+                              className="py-2.5 px-3 rounded-lg font-black text-xs flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.5)]"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>SUBSCRIBE NOW</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const sub = msg.ytSubscribeDetails;
+                                const target = sub?.searchUrl || sub?.subUrl || 'https://www.youtube.com';
+                                window.open(target, '_blank') || (window.location.href = target);
+                              }}
+                              className="py-2.5 px-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 transition-all active:scale-95"
+                            >
+                              <ExternalLink className="w-4 h-4 text-red-400" />
+                              <span>VISIT CHANNEL</span>
                             </button>
                           </div>
                         </div>
