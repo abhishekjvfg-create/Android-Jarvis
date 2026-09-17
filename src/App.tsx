@@ -1464,12 +1464,53 @@ export default function App() {
   const extractCodeFromText = (text: string) => {
     if (!text) return null;
     
-    // 1. Check for code fence blocks (```, ````, ~~~) with optional language tag (html, xml, js, tsx, css, etc.)
-    const codeBlockMatch = text.match(/```+(?:html|xml|javascript|js|jsx|tsx|css)?\s*([\s\S]*?)(?:```+|$)/i) ||
-                           text.match(/~~~+(?:html|xml|javascript|js|jsx|tsx|css)?\s*([\s\S]*?)(?:~~~+|$)/i);
-    let rawCode = codeBlockMatch ? codeBlockMatch[1].trim() : '';
+    // Extract all code blocks (``` or ~~~) with their language tag
+    const codeBlocks: { lang: string; code: string }[] = [];
+    const fenceRegex = /```+(\w*)\s*([\s\S]*?)(?:```+|$)/gi;
+    let match: RegExpExecArray | null;
+    while ((match = fenceRegex.exec(text)) !== null) {
+      const code = (match[2] || '').trim();
+      if (code.length > 15) {
+        codeBlocks.push({ lang: (match[1] || '').toLowerCase(), code });
+      }
+    }
 
-    // 2. Fallback check for raw <!DOCTYPE html> or <html> document tag without code fence
+    let rawCode = '';
+
+    // 1. Priority: Explicit HTML/XML block or block beginning with <!DOCTYPE or <html
+    for (const item of codeBlocks) {
+      const c = item.code;
+      const l = item.lang;
+      if (l === 'html' || l === 'htm' || l === 'xml' || c.toLowerCase().includes('<!doctype html') || c.toLowerCase().includes('<html')) {
+        rawCode = c;
+        break;
+      }
+    }
+
+    // 2. Priority: Code block containing interactive tags (<canvas, THREE., <script, <div)
+    if (!rawCode) {
+      for (const item of codeBlocks) {
+        const c = item.code;
+        // Skip text-only blueprints or bullet point lists
+        if (c.startsWith('[') && c.includes('BLUEPRINT') && !c.includes('<') && !c.includes('function')) continue;
+        if (c.includes('<canvas') || c.includes('<script') || c.includes('THREE.') || c.includes('getContext(') || c.includes('requestAnimationFrame') || c.includes('<body') || c.includes('<svg')) {
+          rawCode = c;
+          break;
+        }
+      }
+    }
+
+    // 3. Priority: Any other code block that isn't a blueprint or note
+    if (!rawCode && codeBlocks.length > 0) {
+      for (const item of codeBlocks) {
+        const c = item.code;
+        if (c.startsWith('[') && c.includes('BLUEPRINT')) continue;
+        rawCode = c;
+        break;
+      }
+    }
+
+    // 4. Fallback: Search raw string for <!DOCTYPE html> or <html> document
     if (!rawCode || rawCode.length < 20) {
       const rawDocMatch = text.match(/(<!DOCTYPE html[\s\S]*?<\/html>|<html[\s\S]*?<\/html>)/i) ||
                           text.match(/(<!DOCTYPE html[\s\S]*|<html[\s\S]*)/i);
@@ -1478,10 +1519,15 @@ export default function App() {
       }
     }
 
-    // 3. Fallback check for raw WebGL / Three.js / Canvas 2D JavaScript code block
+    // 5. Fallback: Search for raw script or canvas block
     if (!rawCode || rawCode.length < 20) {
       if (text.includes('THREE.') || text.includes('new Scene') || text.includes('getContext') || text.includes('<canvas') || text.includes('<script')) {
-        rawCode = text.trim();
+        const scriptMatch = text.match(/<script[\s\S]*?<\/script>/i);
+        if (scriptMatch) {
+          rawCode = scriptMatch[0].trim();
+        } else {
+          rawCode = text.trim();
+        }
       }
     }
 
@@ -1513,12 +1559,12 @@ export default function App() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Rose Interactive 3D Game Engine</title>
+  <title>Interactive App</title>
   ${cdnInjections}
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #080812; color: #fff; font-family: system-ui, -apple-system, sans-serif; }
-    canvas { display: block; width: 100vw !important; height: 100vh !important; }
+    canvas { display: block; width: 100% !important; height: 100% !important; }
   </style>
 </head>
 <body>
@@ -1550,21 +1596,19 @@ export default function App() {
           var canvases = document.getElementsByTagName('canvas');
           for (var i = 0; i < canvases.length; i++) {
             var c = canvases[i];
-            c.style.width = '100vw';
-            c.style.height = '100vh';
+            if (!c.style.width || c.style.width === '0px') c.style.width = '100%';
+            if (!c.style.height || c.style.height === '0px') c.style.height = '100%';
             c.style.display = 'block';
           }
         }
         window.addEventListener('resize', fixCanvasSizing);
         window.addEventListener('DOMContentLoaded', fixCanvasSizing);
+        window.addEventListener('load', fixCanvasSizing);
+        setTimeout(fixCanvasSizing, 100);
+        setTimeout(fixCanvasSizing, 400);
         setTimeout(function() {
-          fixCanvasSizing();
           window.dispatchEvent(new Event('resize'));
-        }, 300);
-        setTimeout(function() {
-          fixCanvasSizing();
-          window.dispatchEvent(new Event('resize'));
-        }, 1200);
+        }, 600);
 
         // 3. Auto Start Button & Loading Overlay Resolver
         function setupAutoStartResolvers() {
@@ -1648,6 +1692,11 @@ export default function App() {
         });
       })();
     </script>`;
+
+    // If it is the showroom-grade AstraAutomotiveStudio, return clean standalone HTML directly
+    if (finalHtml.includes('AstraAutomotiveStudio')) {
+      return finalHtml;
+    }
 
     if (finalHtml.includes('</body>')) {
       finalHtml = finalHtml.replace('</body>', `${selfHealingRuntimeScript}\n</body>`);
@@ -4812,12 +4861,20 @@ export default function App() {
           }
         }
         
-        const isGameRequest = userMsgLower.includes('game') || 
+        const is3DStudioRequest = userMsgLower.includes('3d') || 
+                                  userMsgLower.includes('three.js') || 
+                                  userMsgLower.includes('webgl') || 
+                                  userMsgLower.includes('model') || 
+                                  userMsgLower.includes('car') || 
+                                  userMsgLower.includes('automotive') || 
+                                  userMsgLower.includes('studio');
+
+        const isGameRequest = !is3DStudioRequest && (
+                              userMsgLower.includes('game') || 
                               userMsgLower.includes('khel') || 
                               userMsgLower.includes('banao game') || 
                               userMsgLower.includes('make game') || 
-                              userMsgLower.includes('build game') ||
-                              userMsgLower.includes('3d');
+                              userMsgLower.includes('build game'));
 
         const isWebsiteIntent = userMsgLower.includes('website') || 
                                 userMsgLower.includes('landing page') || 
@@ -4825,7 +4882,7 @@ export default function App() {
                                 userMsgLower.includes('web app') || 
                                 userMsgLower.includes('site banao');
 
-        const isCreatedWebsiteCode = !isGameRequest && (isWebsiteIntent || (
+        const isCreatedWebsiteCode = !isGameRequest && !is3DStudioRequest && (isWebsiteIntent || (
           !!extractedHtmlCode && (
             extractedHtmlCode.toLowerCase().includes('tailwindcss') ||
             extractedHtmlCode.toLowerCase().includes('navbar') ||
@@ -4842,8 +4899,8 @@ export default function App() {
             displayContent = textWithoutCode;
           } else {
             displayContent = activePersona === 'rose'
-              ? (isCreatedWebsiteCode ? "Ji Sir! Maine aapki website create kar di hai. Aap direct neeche live preview me dekh sakte hain:" : "Ji Sir! Maine aapka 3D interactive game create kar diya hai! Aap direct neeche chat frame me play kar sakte hain:")
-              : (isCreatedWebsiteCode ? "Sir, launching your interactive web application live in viewport below." : "Sir, executing interactive 3D WebGL game directly in chat neural matrix below.");
+              ? (is3DStudioRequest ? "Ji Sir! Maine aapka realistic 3D Interactive Studio tayyar kar diya hai! Aap direct neeche live frame me interact kar sakte hain:" : (isCreatedWebsiteCode ? "Ji Sir! Maine aapki website create kar di hai. Aap direct neeche live preview me dekh sakte hain:" : "Ji Sir! Maine aapka 3D interactive game create kar diya hai! Aap direct neeche chat frame me play kar sakte hain:"))
+              : (is3DStudioRequest ? "Sir, launching your photorealistic 3D Automotive Studio with full PBR physics live in viewport below." : (isCreatedWebsiteCode ? "Sir, launching your interactive web application live in viewport below." : "Sir, executing interactive 3D WebGL game directly in chat neural matrix below."));
           }
         }
 
@@ -4855,7 +4912,11 @@ export default function App() {
           isHtmlGame: !!extractedHtmlCode,
           isWebsite: isCreatedWebsiteCode,
           htmlCode: extractedHtmlCode,
-          htmlTitle: extractedHtmlCode ? (isCreatedWebsiteCode ? 'Interactive Website / Web Application' : (isGameRequest ? '3D WebGL Interactive Game' : 'Interactive Executable App')) : undefined,
+          htmlTitle: extractedHtmlCode ? (
+            is3DStudioRequest 
+              ? (userMsgLower.includes('car') || userMsgLower.includes('automotive') || userMsgLower.includes('bmw') || userMsgLower.includes('gadi') ? 'GPT-6 ASTRA • 3D Automotive Design Studio' : 'GPT-6 ASTRA • 3D Interactive Studio')
+              : (isCreatedWebsiteCode ? 'Interactive Website / Web Application' : (isGameRequest ? '3D WebGL Interactive Game' : 'Interactive 3D Executable App'))
+          ) : undefined,
           isCall: functionCallPart?.functionCall?.name === 'make_call',
           isMessage: functionCallPart?.functionCall?.name === 'send_message',
           isHotspot: functionCallPart?.functionCall?.name === 'toggle_hotspot',
