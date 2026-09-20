@@ -27,7 +27,9 @@ import {
   Star,
   ExternalLink,
   Lock,
-  Radio
+  Radio,
+  Monitor,
+  Video
 } from 'lucide-react';
 import { ALL_1000_PLUS_MODELS, AIModel } from '../data/aiModels';
 import { GeminiLogo } from './PaymentLogos';
@@ -45,6 +47,8 @@ interface SettingsModalProps {
   onOpenPaymentPortal?: () => void;
   isBackgroundSystemEnabled?: boolean;
   onToggleBackgroundSystem?: (enabled: boolean) => void;
+  isScreenSharingActive?: boolean;
+  onToggleScreenSharing?: (enabled: boolean) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -59,7 +63,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   isRoseProUnlocked = false,
   onOpenPaymentPortal,
   isBackgroundSystemEnabled = false,
-  onToggleBackgroundSystem
+  onToggleBackgroundSystem,
+  isScreenSharingActive = false,
+  onToggleScreenSharing
 }) => {
   const isRose = activePersona === 'rose';
   const [serverUrlInput, setServerUrlInput] = useState('');
@@ -93,10 +99,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setIsApiRevealed(localStorage.getItem('mesh_api_key_revealed') === 'true');
       setSelectedModelId(localStorage.getItem('jarvis_selected_model') || 'claude-sonnet-5-quantum');
       setSaveSuccess(false);
-
-      if (!isRose && activeTab === 'models') {
-        setActiveTab('api');
-      }
     }
   }, [isOpen, activePersona, isRose, activeTab]);
 
@@ -198,21 +200,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <span>System & API Keys</span>
             </button>
 
-            {/* 1000+ AI Models tab is ONLY visible in Rose mode */}
-            {isRose && (
-              <button
-                type="button"
-                onClick={() => setActiveTab('models')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
-                  activeTab === 'models'
-                    ? 'bg-pink-600 text-white shadow-[0_0_12px_rgba(255,105,180,0.5)]'
-                    : 'bg-white/5 text-zinc-400 hover:text-white'
-                }`}
-              >
-                <GeminiLogo className="w-4 h-4" />
-                <span>1000+ AI Models</span>
-              </button>
-            )}
+            {/* 1000+ AI Models Directory Tab */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('models')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+                activeTab === 'models'
+                  ? (isRose ? 'bg-pink-600 text-white shadow-[0_0_12px_rgba(255,105,180,0.5)]' : 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(0,242,255,0.5)]')
+                  : 'bg-white/5 text-zinc-400 hover:text-white'
+              }`}
+            >
+              <GeminiLogo className="w-4 h-4" />
+              <span>1000+ AI Models</span>
+            </button>
 
             {/* Background System Mode Tab */}
             <button
@@ -378,11 +378,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </form>
             )}
 
-            {/* TAB 2: 1000+ AI MODELS DIRECTORY (ROSE EXCLUSIVE) */}
-            {activeTab === 'models' && isRose && (
+            {/* TAB 2: 1000+ AI MODELS DIRECTORY */}
+            {activeTab === 'models' && (
               <div className="space-y-4">
-                {/* FREEMIUM VS PREMIUM UNLOCK HEAD BANNER */}
-                {!isRoseProUnlocked && (
+                {/* FREEMIUM VS PREMIUM UNLOCK HEAD BANNER (ROSE MODE ONLY) */}
+                {isRose && !isRoseProUnlocked && (
                   <div className="p-4 bg-gradient-to-br from-pink-950/80 via-purple-950/70 to-black border-2 border-pink-500/60 rounded-2xl text-left space-y-3 shadow-[0_0_30px_rgba(255,105,180,0.3)]">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -427,16 +427,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 )}
 
-                {/* 1000+ MODELS MATRIX CONTAINER (Full active if Pro, Grayed-out/Low-color deactivated if Freemium) */}
+                {/* 1000+ MODELS MATRIX CONTAINER */}
                 <div className={`space-y-3 transition-all ${
-                  !isRoseProUnlocked ? 'opacity-50 grayscale pointer-events-auto filter contrast-75' : ''
+                  isRose && !isRoseProUnlocked ? 'opacity-50 grayscale pointer-events-auto filter contrast-75' : ''
                 }`}>
-                  <div className="p-3 rounded-xl border bg-pink-950/30 border-pink-500/40 flex items-center justify-between">
+                  <div className={`p-3 rounded-xl border flex items-center justify-between ${
+                    isRose ? 'bg-pink-950/30 border-pink-500/40' : 'bg-cyan-950/30 border-cyan-500/40'
+                  }`}>
                     <div>
                       <h3 className="font-bold text-xs sm:text-sm uppercase tracking-wider text-white flex items-center gap-2">
-                        <Cpu className="w-4 h-4 text-pink-400" />
-                        <span>1,000+ AI Models Directory</span>
-                        {!isRoseProUnlocked && (
+                        <Cpu className={`w-4 h-4 ${isRose ? 'text-pink-400' : 'text-cyan-400'}`} />
+                        <span>1,000+ AI Models Directory ({isRose ? 'ROSE' : 'JARVIS'})</span>
+                        {isRose && !isRoseProUnlocked && (
                           <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 text-[9px] border border-amber-500/40 rounded uppercase font-mono flex items-center gap-1">
                             <Lock className="w-2.5 h-2.5" />
                             DEACTIVATED (FREEMIUM MODE)
@@ -444,7 +446,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         )}
                       </h3>
                       <p className="text-[11px] text-zinc-300 mt-0.5">
-                        {!isRoseProUnlocked 
+                        {isRose && !isRoseProUnlocked 
                           ? 'Models catalog is currently deactivated in Freemium Mode. Upgrade to Rose Pro ₹499 to activate.' 
                           : 'Select your preferred neural model from the 1,000+ matrix below:'}
                       </p>
@@ -452,14 +454,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
 
                   {/* Active Model Bar */}
-                  <div className="p-3 bg-black/80 border border-pink-500/30 rounded-xl flex items-center justify-between">
+                  <div className={`p-3 bg-black/80 border rounded-xl flex items-center justify-between ${
+                    isRose ? 'border-pink-500/30' : 'border-cyan-500/30'
+                  }`}>
                     <div>
-                      <div className="text-[10px] uppercase font-bold text-pink-400 tracking-wider">Active Neural Model</div>
+                      <div className={`text-[10px] uppercase font-bold tracking-wider ${isRose ? 'text-pink-400' : 'text-cyan-400'}`}>
+                        Active Neural Model
+                      </div>
                       <div className="text-sm font-bold text-white font-mono mt-0.5">
                         {ALL_1000_PLUS_MODELS.find(m => m.id === selectedModelId)?.name || selectedModelId}
                       </div>
                     </div>
-                    <span className="px-3 py-1 bg-pink-500/20 text-pink-300 text-xs font-bold rounded-lg border border-pink-500/40 flex items-center gap-1">
+                    <span className={`px-3 py-1 text-xs font-bold rounded-lg border flex items-center gap-1 ${
+                      isRose ? 'bg-pink-500/20 text-pink-300 border-pink-500/40' : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                    }`}>
                       <Check className="w-3.5 h-3.5" />
                       SELECTED
                     </span>
@@ -474,7 +482,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         value={modelSearch}
                         onChange={(e) => setModelSearch(e.target.value)}
                         placeholder="Search 1,000+ models (e.g. Claude 3.5, DeepSeek R1, GPT-4o, Llama 3.3)..."
-                        className="w-full py-2.5 pl-9 pr-3 bg-black/80 border border-zinc-700 rounded-xl font-mono text-xs text-white focus:outline-none focus:border-pink-400"
+                        className={`w-full py-2.5 pl-9 pr-3 bg-black/80 border border-zinc-700 rounded-xl font-mono text-xs text-white focus:outline-none ${
+                          isRose ? 'focus:border-pink-400' : 'focus:border-cyan-400'
+                        }`}
                       />
                     </div>
 
@@ -486,7 +496,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           onClick={() => setCategoryFilter(cat)}
                           className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shrink-0 ${
                             categoryFilter === cat
-                              ? 'bg-pink-600 text-white'
+                              ? (isRose ? 'bg-pink-600 text-white' : 'bg-cyan-500 text-black font-extrabold')
                               : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
                           }`}
                         >
@@ -512,7 +522,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           key={m.id}
                           type="button"
                           onClick={() => {
-                            if (!isRoseProUnlocked) {
+                            if (isRose && !isRoseProUnlocked) {
                               onSetSystemAlert("ROSE PRO ₹499 REQUIRED TO SELECT 1,000+ AI MODELS");
                               onClose();
                               if (onOpenPaymentPortal) onOpenPaymentPortal();
@@ -525,23 +535,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           }}
                           className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between ${
                             isSelected
-                              ? 'bg-pink-900/40 border-pink-400 text-pink-100 shadow-[0_0_15px_rgba(255,105,180,0.3)]' 
+                              ? (isRose 
+                                  ? 'bg-pink-900/40 border-pink-400 text-pink-100 shadow-[0_0_15px_rgba(255,105,180,0.3)]'
+                                  : 'bg-cyan-900/40 border-cyan-400 text-cyan-100 shadow-[0_0_15px_rgba(0,242,255,0.3)]')
                               : 'bg-black/60 border-zinc-800/80 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-900/60'
                           }`}
                         >
                           <div>
                             <div className="flex items-center justify-between gap-1 mb-1">
-                              <span className="text-[9px] font-bold uppercase tracking-wider text-pink-400/80">
+                              <span className={`text-[9px] font-bold uppercase tracking-wider ${isRose ? 'text-pink-400/80' : 'text-cyan-400/80'}`}>
                                 {m.provider} • {m.category}
                               </span>
-                              {!isRoseProUnlocked ? (
+                              {isRose && !isRoseProUnlocked ? (
                                 <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-0.5">
                                   <Lock className="w-2.5 h-2.5" />
                                   LOCKED
                                 </span>
                               ) : (
                                 m.badge && (
-                                  <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${
+                                    isRose 
+                                      ? 'bg-pink-500/20 text-pink-300 border-pink-500/30' 
+                                      : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+                                  }`}>
                                     {m.badge}
                                   </span>
                                 )
@@ -554,9 +570,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <div className="mt-2.5 pt-2 border-t border-white/5 flex items-center justify-between text-[10px]">
                             <span className="text-zinc-500 font-mono">{m.contextWindow}</span>
                             <span className={`font-bold flex items-center gap-1 ${
-                              !isRoseProUnlocked ? 'text-amber-400' : isSelected ? 'text-emerald-400' : 'text-zinc-400'
+                              isRose && !isRoseProUnlocked ? 'text-amber-400' : isSelected ? 'text-emerald-400' : 'text-zinc-400'
                             }`}>
-                              {!isRoseProUnlocked ? (
+                              {isRose && !isRoseProUnlocked ? (
                                 <>
                                   <Lock className="w-2.5 h-2.5" />
                                   <span>UNLOCK ₹499</span>

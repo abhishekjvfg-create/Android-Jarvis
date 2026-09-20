@@ -9,23 +9,13 @@ function getApiEndpoint(path: string): string {
     return `${cleanBase}/${cleanPath}`;
   }
 
-  // 2. Auto-detect if running in mobile APK, WebView, file:// protocol, or local standalone client
+  // 2. Relative path for all standard web/browser/preview environments
   const origin = window.location.origin || '';
-  const isLocalFileOrMobileApp = !origin || 
-    origin.startsWith('file:') || 
-    origin.startsWith('capacitor:') || 
-    origin.startsWith('ionic:') || 
-    origin.includes('localhost:5173') ||
-    origin.includes('127.0.0.1');
-
-  // Deployed backend endpoint URL for standalone mobile APKs
-  const DEFAULT_BACKEND_HOST = "https://ais-dev-bk6flmvo5i6tgyp2elldd5-143663206048.asia-southeast1.run.app";
-
-  if (isLocalFileOrMobileApp && !origin.includes('run.app')) {
-    const cleanPath = path.replace(/^\/+/, '');
-    return `${DEFAULT_BACKEND_HOST}/${cleanPath}`;
+  if (origin && !origin.startsWith('file:') && !origin.startsWith('capacitor:') && !origin.startsWith('ionic:')) {
+    return path;
   }
 
+  // 3. Fallback for standalone native file/capacitor apps
   return path;
 }
 
@@ -38,7 +28,8 @@ export async function chatWithJarvis(
   userName?: string,
   userEmail?: string,
   secretMemoryArchives: any[] = [],
-  isVoiceMode?: boolean
+  isVoiceMode?: boolean,
+  image?: string
 ) {
   let retries = isVoiceMode ? 1 : 2;
   let customApiKey = '';
@@ -72,6 +63,7 @@ export async function chatWithJarvis(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           message, 
+          image,
           history, 
           memory, 
           secretMemoryArchives,
@@ -168,10 +160,10 @@ export async function textToSpeech(
                      localStorage.getItem('custom_elevenlabs_key') || '';
     }
     if (!jarvisVoiceId) {
-      jarvisVoiceId = localStorage.getItem('elevenlabs_jarvis_voice_id') || '';
+      jarvisVoiceId = localStorage.getItem('elevenlabs_jarvis_voice_id') || 'pNInz6obpgDQGcFmaJgB';
     }
     if (!roseVoiceId) {
-      roseVoiceId = localStorage.getItem('elevenlabs_rose_voice_id') || '';
+      roseVoiceId = localStorage.getItem('elevenlabs_rose_voice_id') || '21m00Tcm4TlvDq8ikWAM';
     }
     if (!options?.voiceSettings) {
       const savedVoiceSettings = localStorage.getItem('elevenlabs_voice_settings');

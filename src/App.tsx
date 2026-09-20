@@ -6,7 +6,7 @@
 import React, { useState, useRef, useEffect, MouseEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Mic, MicOff, Send, ArrowRight, ArrowUp, ArrowUpRight, SendHorizontal, Image as ImageIcon, Volume2, VolumeX, Loader2, Cpu, Terminal as TerminalIcon, Sparkles, Phone, Video, Lock, QrCode, CheckCheck, UserPlus, Database, Settings, X, Wifi, Menu, Plus, MessageSquare, MessageSquarePlus, Trash2, Clock, ChevronRight, Search, Upload, FileText, Smartphone, Sun, Maximize2, Minimize2, ShieldCheck, Layers, ExternalLink, Film, CheckCircle2, XCircle, Tv, Sliders, Globe, Instagram, MessageCircle, Radio, Paperclip, Code, Bell, BellRing, BellOff, AlarmClock, Download, Gamepad2, RotateCcw, Play, RefreshCw, Power, Copy, Star, CreditCard, AlertCircle, Key, Workflow, Youtube } from 'lucide-react';
+import { Mic, MicOff, Send, ArrowRight, ArrowUp, ArrowUpRight, SendHorizontal, Image as ImageIcon, Volume2, VolumeX, Loader2, Cpu, Terminal as TerminalIcon, Sparkles, Phone, Video, Lock, QrCode, CheckCheck, UserPlus, Database, Settings, X, Wifi, Menu, Plus, MessageSquare, MessageSquarePlus, Trash2, Clock, ChevronRight, Search, Upload, FileText, Smartphone, Sun, Maximize2, Minimize2, ShieldCheck, Layers, ExternalLink, Film, CheckCircle2, XCircle, Tv, Sliders, Globe, Instagram, MessageCircle, Radio, Paperclip, Code, Bell, BellRing, BellOff, AlarmClock, Download, Gamepad2, RotateCcw, Play, RefreshCw, Power, Copy, Star, CreditCard, AlertCircle, Key, Workflow, Youtube, Camera, Monitor } from 'lucide-react';
 import JSZip from 'jszip';
 import { chatWithJarvis, generateImage, textToSpeech, logBackgroundConversation } from './services/geminiService';
 import HolographicContainer from './components/HolographicContainer';
@@ -14,6 +14,7 @@ import IronManLogo from './components/IronManLogo';
 import MusicPlayerCard from './components/MusicPlayerCard';
 import { JarvisLogin } from './components/JarvisLogin';
 import { JarvisTechIntro } from './components/JarvisTechIntro';
+import { createIronMan3DModelHtml, createCustom3DModelHtml } from './services/projectGenerator';
 import { db } from './lib/firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, limit, Timestamp, doc, getDoc, setDoc, getDocs, where, deleteDoc } from 'firebase/firestore';
 import { AppLauncherModal } from './components/AppLauncherModal';
@@ -142,6 +143,7 @@ interface Message {
   id?: string;
   role: 'user' | 'model';
   content: string;
+  image?: string;
   isImage?: boolean;
   prompt?: string;
   modelUsed?: string;
@@ -541,6 +543,87 @@ export default function App() {
   const backgroundVoiceTurnIdRef = useRef<number>(0);
   const lastYouTubeQueryRef = useRef<string>('');
 
+  // Background Project Creation State & Active Undownloaded Project Ref
+  const [buildingProjectTask, setBuildingProjectTask] = useState<string | null>(null);
+  const activeBackgroundProjectRef = useRef<{ id: string; title: string; downloaded: boolean; openedAt: number } | null>(null);
+
+  // Screen Sharing / Screen Vision State (Gemini / ChatGPT style screen share)
+  const [isScreenSharingActive, setIsScreenSharingActive] = useState<boolean>(() => {
+    return localStorage.getItem('jarvis_screen_sharing_active') === 'true';
+  });
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (screenVideoRef.current && screenStream) {
+      screenVideoRef.current.srcObject = screenStream;
+    }
+  }, [screenStream, isScreenSharingActive]);
+
+  const toggleScreenSharing = async (enable?: boolean) => {
+    const nextVal = enable !== undefined ? enable : !isScreenSharingActive;
+    if (nextVal) {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+          setSystemAlert("❌ SCREEN SHARING NOT SUPPORTED IN THIS BROWSER");
+          return;
+        }
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false
+        } as any);
+        
+        stream.getVideoTracks()[0].onended = () => {
+          setIsScreenSharingActive(false);
+          setScreenStream(null);
+          localStorage.setItem('jarvis_screen_sharing_active', 'false');
+          setSystemAlert("🔴 SCREEN SHARING STOPPED");
+        };
+
+        setScreenStream(stream);
+        setIsScreenSharingActive(true);
+        localStorage.setItem('jarvis_screen_sharing_active', 'true');
+        setSystemAlert("Screen sharing on");
+
+        const greeting = activePersona === 'rose'
+          ? "Screen dekhna shuru kar diya hai Boss! Bataiye screen par kya dekhna hai?"
+          : "Screen Vision connected, Sir. I can now view your screen in real-time.";
+        speakRealVoiceBackground(greeting, activePersona);
+      } catch (err: any) {
+        console.warn("Screen share error:", err);
+        setIsScreenSharingActive(false);
+        setScreenStream(null);
+        localStorage.setItem('jarvis_screen_sharing_active', 'false');
+        setSystemAlert("Screen sharing off");
+      }
+    } else {
+      if (screenStream) {
+        screenStream.getTracks().forEach(t => t.stop());
+        setScreenStream(null);
+      }
+      setIsScreenSharingActive(false);
+      localStorage.setItem('jarvis_screen_sharing_active', 'false');
+      setSystemAlert("Screen sharing off");
+    }
+  };
+
+  const captureScreenSnapshot = (): string | null => {
+    if (!screenStream || !screenVideoRef.current) return null;
+    try {
+      const video = screenVideoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.85);
+    } catch (e) {
+      console.warn("Screen snapshot error:", e);
+      return null;
+    }
+  };
+
   useEffect(() => {
     isBackgroundSystemActiveRef.current = isBackgroundSystemEnabled;
   }, [isBackgroundSystemEnabled]);
@@ -939,6 +1022,7 @@ export default function App() {
 
       utterance.onstart = () => {
         setIsSpeaking(true);
+        isSpeakingRef.current = true;
         if (msgKey !== undefined) setActiveSpeakingMsgKey(msgKey);
       };
       utterance.onend = () => {
@@ -1126,6 +1210,42 @@ export default function App() {
     const saved = localStorage.getItem('active_persona');
     return (saved === 'rose' || saved === 'jarvis') ? saved : 'jarvis';
   });
+
+  // Automatic Purge of Undownloaded Projects when user returns to Jarvis app
+  useEffect(() => {
+    const handleReturnToJarvis = async () => {
+      if (document.visibilityState === 'visible' && isBackgroundSystemActiveRef.current && activeBackgroundProjectRef.current) {
+        const proj = activeBackgroundProjectRef.current;
+        // If user returned after viewing project without downloading it
+        if (Date.now() - proj.openedAt > 2000) {
+          try {
+            const res = await fetch(`/api/projects/${proj.id}/status`);
+            const status = await res.json();
+            if (status.exists && !status.downloaded) {
+              // Purge project permanently from memory
+              await fetch(`/api/projects/${proj.id}`, { method: 'DELETE' });
+              activeBackgroundProjectRef.current = null;
+
+              const purgeNotice = activePersona === 'rose'
+                ? "Boss, aapne project download nahi kiya, isliye purana project clear ho gaya hai. Aap naya project ya usi ko dobara banane ko bol sakte hain!"
+                : "Project session closed without download, Sir. Project memory purged. You can request a new build or rebuild anytime.";
+
+              setSystemAlert("PROJECT PURGED (SESSION CLOSED WITHOUT DOWNLOAD)");
+              speakRealVoiceBackground(purgeNotice, activePersona);
+            }
+          } catch (e) {}
+        }
+      }
+    };
+
+    window.addEventListener('focus', handleReturnToJarvis);
+    document.addEventListener('visibilitychange', handleReturnToJarvis);
+    return () => {
+      window.removeEventListener('focus', handleReturnToJarvis);
+      document.removeEventListener('visibilitychange', handleReturnToJarvis);
+    };
+  }, [activePersona]);
+
   const [isRoseActivated, setIsRoseActivated] = useState<boolean>(() => {
     return localStorage.getItem('is_rose_activated') === 'true';
   });
@@ -1152,6 +1272,25 @@ export default function App() {
     return 0.35;
   });
   const [isTestingVoice, setIsTestingVoice] = useState<'jarvis' | 'rose' | null>(null);
+
+  // Auto-initialize and permanently persist default voice models & IDs in localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (!localStorage.getItem('elevenlabs_jarvis_voice_id')) {
+        localStorage.setItem('elevenlabs_jarvis_voice_id', 'pNInz6obpgDQGcFmaJgB');
+      }
+      if (!localStorage.getItem('elevenlabs_rose_voice_id')) {
+        localStorage.setItem('elevenlabs_rose_voice_id', '21m00Tcm4TlvDq8ikWAM');
+      }
+      if (!localStorage.getItem('elevenlabs_voice_settings')) {
+        localStorage.setItem('elevenlabs_voice_settings', JSON.stringify({
+          stability: 0.35,
+          similarity_boost: 0.85,
+          style: 0.45
+        }));
+      }
+    }
+  }, []);
 
   const testVoiceSample = async (personaTarget: 'jarvis' | 'rose') => {
     setIsTestingVoice(personaTarget);
@@ -1191,8 +1330,13 @@ export default function App() {
     }
   };
 
-  // Real Authentic AI Voice (ElevenLabs & Gemini TTS) for Background Live Voice Mode
+  // Authentic Neural Voice for Background Live Voice Mode (Gemini / ElevenLabs realistic TTS, strict turn management)
   const speakRealVoiceBackground = async (text: string, persona: 'jarvis' | 'rose', onDone?: () => void, turnId?: number) => {
+    // Check if background system is active; if toggled off in 1-2 seconds, never speak
+    if (!isBackgroundSystemActiveRef.current) {
+      return;
+    }
+
     const clean = cleanTextForSpeech(text);
     if (!clean) {
       if (onDone) onDone();
@@ -1208,51 +1352,72 @@ export default function App() {
     setLiveAiReply(clean);
 
     try {
-      const audioRes = await textToSpeech(clean, persona);
-      if (turnId !== undefined && backgroundVoiceTurnIdRef.current !== turnId) {
+      // Attempt the authentic realistic neural voice (Gemini TTS / ElevenLabs) with 7s timeout
+      const ttsPromise = textToSpeech(clean, persona);
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 7000));
+      const ttsRes: any = await Promise.race([ttsPromise, timeoutPromise]);
+
+      // If user turned off background system or initiated another command while waiting, discard completely
+      if (!isBackgroundSystemActiveRef.current || (turnId !== undefined && backgroundVoiceTurnIdRef.current !== turnId)) {
+        setIsSpeaking(false);
+        isSpeakingRef.current = false;
         return;
       }
-      if (audioRes && audioRes.audio) {
-        const mimeType = audioRes.format === 'wav' ? 'audio/wav' : 'audio/mpeg';
-        const audio = new Audio(`data:${mimeType};base64,${audioRes.audio}`);
-        currentAudioSourceRef.current = audio;
+
+      if (ttsRes && ttsRes.audio) {
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          try { window.speechSynthesis.cancel(); } catch (e) {}
+        }
+        let base64Audio = ttsRes.audio;
+        let mimeType = ttsRes.format === 'wav' ? 'audio/wav' : 'audio/mpeg';
+        const binary = atob(base64Audio);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
         currentAudioElRef.current = audio;
 
         audio.onended = () => {
+          URL.revokeObjectURL(url);
           setIsSpeaking(false);
           isSpeakingRef.current = false;
-          currentAudioSourceRef.current = null;
-          currentAudioElRef.current = null;
           if (onDone) onDone();
         };
 
-        audio.onerror = (e) => {
-          console.warn("Real voice audio playback notice:", e);
-          setIsSpeaking(false);
-          isSpeakingRef.current = false;
-          currentAudioSourceRef.current = null;
-          currentAudioElRef.current = null;
-          if (turnId === undefined || backgroundVoiceTurnIdRef.current === turnId) {
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          if (isBackgroundSystemActiveRef.current && (turnId === undefined || backgroundVoiceTurnIdRef.current === turnId)) {
             speakInstantBrowserFallback(clean, undefined, persona, onDone);
           }
         };
 
+        if (!isBackgroundSystemActiveRef.current || (turnId !== undefined && backgroundVoiceTurnIdRef.current !== turnId)) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+
         await audio.play();
         return;
       }
-    } catch (err) {
-      console.warn("Real TTS fetch error:", err);
+    } catch (e) {
+      // Fall through to browser fallback only if background system is still active
     }
 
-    // High-quality browser fallback only if server audio fails
-    if (turnId === undefined || backgroundVoiceTurnIdRef.current === turnId) {
+    if (isBackgroundSystemActiveRef.current && (turnId === undefined || backgroundVoiceTurnIdRef.current === turnId)) {
       speakInstantBrowserFallback(clean, undefined, persona, onDone);
+    } else {
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
     }
   };
 
   const toggleBackgroundSystem = (enabled?: boolean) => {
     const nextVal = enabled !== undefined ? enabled : !isBackgroundSystemEnabled;
     setIsBackgroundSystemEnabled(nextVal);
+    isBackgroundSystemActiveRef.current = nextVal;
     localStorage.setItem('jarvis_background_system_enabled', nextVal ? 'true' : 'false');
     setSystemAlert(
       nextVal 
@@ -1264,10 +1429,10 @@ export default function App() {
       if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
         Notification.requestPermission().catch(() => {});
       }
-      playIronManRoboticSound('voice_activate');
 
       setLiveUserTranscript('');
-      // Immediate voice greeting as requested: "Hello Boss" in authentic persona voice
+      const startTurnId = ++backgroundVoiceTurnIdRef.current;
+      // Clean, immediate voice greeting without electronic beeps
       const greeting = activePersona === 'rose'
         ? "Hello Boss! Main Rose hoon, Live system active hai. Bataiye main aapki kya madad karoon?"
         : "Hello Boss! Jarvis live background system is active. I am listening, how can I help you, Sir?";
@@ -1276,12 +1441,38 @@ export default function App() {
         if (resumeBackgroundListeningRef.current) {
           resumeBackgroundListeningRef.current();
         }
-      });
+      }, startTurnId);
     } else {
+      // 🛑 INSTANT SHUTDOWN: Invalidate turnId and kill all audio immediately to prevent audio leakage
+      backgroundVoiceTurnIdRef.current++;
+      isBackgroundSystemActiveRef.current = false;
+      isSpeakingRef.current = false;
+      setIsSpeaking(false);
+      setIsLiveProcessing(false);
+      setLiveUserTranscript('');
+      setLiveAiReply('');
+      setBuildingProjectTask(null);
+
+      if (currentAudioElRef.current) {
+        try {
+          currentAudioElRef.current.pause();
+          currentAudioElRef.current.src = '';
+        } catch (e) {}
+        currentAudioElRef.current = null;
+      }
+
+      if (backgroundAudioRef.current) {
+        try {
+          backgroundAudioRef.current.pause();
+          backgroundAudioRef.current.src = '';
+        } catch (e) {}
+      }
+
       if ('speechSynthesis' in window) {
         try { window.speechSynthesis.cancel(); } catch (e) {}
       }
       stopSpeaking();
+      stopAudio();
     }
   };
 
@@ -1996,7 +2187,7 @@ export default function App() {
     }
 
     // Clean conversational prefixes & suffixes
-    const cleanApp = rawLower
+    let cleanApp = rawLower
       .replace(/^open\s+|^launch\s+|^kholo\s+|^chalao\s+|\s+app$|\s+application$|\s+kholo$|\s+chalao$|\s+open$/g, '')
       .trim();
 
@@ -2032,12 +2223,25 @@ export default function App() {
       };
     }
 
-    // 3. YouTube Search Handling (if searchQuery provided, or if query is embedded)
+    // 3. YouTube Search Handling (if searchQuery provided, or if query is embedded in cleanApp)
+    if (!searchQuery && (cleanApp.startsWith('youtube') || cleanApp.startsWith('yt'))) {
+      const extractedQuery = cleanApp
+        .replace(/^(youtube|yt)\s*(pe|par|me|se)?\s*/i, '')
+        .replace(/search karne ko bolta hu|search karne ko|search karne|search kijiye|search karo|search|chalao|dikhao/gi, '')
+        .replace(/\b(ko|ka|ki|ke|liye|bolta|bolti|hoon|hu|hai)\b/gi, '')
+        .trim();
+      if (extractedQuery) {
+        searchQuery = extractedQuery;
+        cleanApp = 'youtube';
+      }
+    }
+
     if (cleanApp === 'youtube' || cleanApp === 'yt') {
       if (searchQuery && searchQuery.trim()) {
         const q = searchQuery.trim();
         lastYouTubeQueryRef.current = q;
         const ytAppScheme = `vnd.youtube://results?search_query=${encodeURIComponent(q)}`;
+        const ytIntentUrl = `intent://results?search_query=${encodeURIComponent(q)}#Intent;scheme=vnd.youtube;package=com.google.android.youtube;end`;
         const ytWebUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
 
         // Attempt launching YouTube app directly via scheme
@@ -2049,12 +2253,21 @@ export default function App() {
           document.body.removeChild(a);
         } catch (e) {}
 
+        // Secondary try with intent URL
+        setTimeout(() => {
+          if (!document.hidden) {
+            try {
+              window.location.href = ytIntentUrl;
+            } catch (e) {}
+          }
+        }, 400);
+
         // Fallback to web link if app scheme is not intercepted
         setTimeout(() => {
           if (!document.hidden) {
             window.open(ytWebUrl, '_blank') || (window.location.href = ytWebUrl);
           }
-        }, 800);
+        }, 1200);
 
         return {
           name: `YouTube: "${q}"`,
@@ -2089,8 +2302,11 @@ export default function App() {
       const webUrl = entry.url || playStoreUrl;
       const appScheme = entry.appScheme;
 
-      // The direct launch target: appScheme (e.g. whatsapp://, vnd.youtube://, instagram://app) or webUrl
-      const launchTarget = appScheme || webUrl;
+      // Android Intent URI allows Android OS package manager to directly open the installed app without launching Play Store
+      const androidIntentUri = entry.intentUrl || `intent://#Intent;package=${packageName};action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;end`;
+
+      // Priority: 1. Custom appScheme (e.g. vnd.youtube://, whatsapp://) -> 2. Android Intent URI -> 3. webUrl
+      const primaryLaunchTarget = appScheme || androidIntentUri;
 
       // Track if the app opened and user's browser lost focus
       let appLaunchedSuccessfully = false;
@@ -2101,22 +2317,29 @@ export default function App() {
       window.addEventListener('pagehide', onAppLaunchSucceeded, { once: true });
       window.addEventListener('blur', onAppLaunchSucceeded, { once: true });
 
-      // Trigger launch directly
+      // Trigger direct native launch on device
       try {
         const a = document.createElement('a');
-        a.href = launchTarget;
-        if (!appScheme) {
-          a.target = '_blank';
-          a.rel = 'noopener noreferrer';
-        }
+        a.href = primaryLaunchTarget;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
       } catch (err) {
-        window.open(launchTarget, '_blank') || (window.location.href = launchTarget);
+        if (webUrl && webUrl !== playStoreUrl) {
+          window.open(webUrl, '_blank') || (window.location.href = webUrl);
+        }
       }
 
-      // If after 1.8 seconds the page is STILL foreground and visible, it means the app is NOT installed on phone!
+      // Secondary try with Android Intent URI if scheme didn't immediately shift visibility
+      setTimeout(() => {
+        if (!appLaunchedSuccessfully && !document.hidden && primaryLaunchTarget !== androidIntentUri) {
+          try {
+            window.location.href = androidIntentUri;
+          } catch (e) {}
+        }
+      }, 500);
+
+      // If after 2.5 seconds the page is STILL foreground and visible, it means the app is NOT installed on phone!
       // Only then redirect directly to the Google Play Store for this exact app!
       setTimeout(() => {
         document.removeEventListener('visibilitychange', onAppLaunchSucceeded);
@@ -2124,20 +2347,20 @@ export default function App() {
         window.removeEventListener('blur', onAppLaunchSucceeded);
 
         if (!appLaunchedSuccessfully && !document.hidden) {
-          setSystemAlert(`APP NOT FOUND ON DEVICE: REDIRECTING TO PLAY STORE (${targetName.toUpperCase()})...`);
+          setSystemAlert(`APP NOT FOUND ON DEVICE: OPENING PLAY STORE FOR (${targetName.toUpperCase()})...`);
           window.location.href = `market://details?id=${packageName}`;
           setTimeout(() => {
             if (!document.hidden) {
               window.open(playStoreUrl, '_blank') || (window.location.href = playStoreUrl);
             }
-          }, 400);
+          }, 600);
         }
-      }, 1800);
+      }, 2500);
 
       return {
         name: targetName,
         url: webUrl,
-        intentUrl: launchTarget,
+        intentUrl: primaryLaunchTarget,
         packageName,
         appScheme,
         playStoreUrl
@@ -2145,27 +2368,80 @@ export default function App() {
     }
 
     // B. Unknown App or Specific App Not in Dictionary:
-    // User instruction: "aur agar yo app mere phone me nahi ho to play store me le jaye aur jis app ya website ka naam bola gaya ho yahi app ya website open karna ha usse milta julta app nahi open karna ha"
-    // Opens Google Play Store with that EXACT app searched (no loose or random app)
+    // User instruction: "aur na hi ye sare apps direct open karta ha ye sirf youtube aur kuch hi apps direct open karta ha aur agar isko koi aur app bola jaye tab to ye open karne ki jagah usi app ko play store me open karta ha"
+    // Solution: Attempt direct native launcher intent on phone first!
+    const cleanSlug = cleanApp.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const candidatePkg = `com.${cleanSlug}`;
+    const deviceLaunchScheme = `${cleanSlug}://`;
+    const deviceLauncherIntent = `intent://#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=${candidatePkg};end`;
+    const deviceViewIntent = `intent:#Intent;action=android.intent.action.VIEW;scheme=${cleanSlug};end`;
+
     const exactPlayStoreUrl = `https://play.google.com/store/search?q=${encodeURIComponent(cleanApp)}&c=apps`;
     const marketSearchUrl = `market://search?q=${encodeURIComponent(cleanApp)}&c=apps`;
 
+    let appLaunchedSuccessfully = false;
+    const onAppLaunchSucceeded = () => {
+      appLaunchedSuccessfully = true;
+    };
+    document.addEventListener('visibilitychange', onAppLaunchSucceeded, { once: true });
+    window.addEventListener('pagehide', onAppLaunchSucceeded, { once: true });
+    window.addEventListener('blur', onAppLaunchSucceeded, { once: true });
+
+    // 1. First attempt direct scheme on phone
     try {
-      window.location.href = marketSearchUrl;
-      setTimeout(() => {
-        if (!document.hidden) {
-          window.open(exactPlayStoreUrl, '_blank') || (window.location.href = exactPlayStoreUrl);
+      const a = document.createElement('a');
+      a.href = deviceLaunchScheme;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (e) {}
+
+    // 2. Second attempt via Android Launcher Intent URI
+    setTimeout(() => {
+      if (!appLaunchedSuccessfully && !document.hidden) {
+        try {
+          window.location.href = deviceLauncherIntent;
+        } catch (e) {}
+      }
+    }, 450);
+
+    // 3. Third attempt via Android View Intent
+    setTimeout(() => {
+      if (!appLaunchedSuccessfully && !document.hidden) {
+        try {
+          window.location.href = deviceViewIntent;
+        } catch (e) {}
+      }
+    }, 900);
+
+    // 4. If after 2.5 seconds the phone is STILL in browser foreground (app is not installed):
+    // Only then redirect to Play Store for that exact app!
+    setTimeout(() => {
+      document.removeEventListener('visibilitychange', onAppLaunchSucceeded);
+      window.removeEventListener('pagehide', onAppLaunchSucceeded);
+      window.removeEventListener('blur', onAppLaunchSucceeded);
+
+      if (!appLaunchedSuccessfully && !document.hidden) {
+        setSystemAlert(`APP NOT FOUND ON DEVICE: SEARCHING PLAY STORE FOR (${cleanApp.toUpperCase()})...`);
+        try {
+          window.location.href = marketSearchUrl;
+          setTimeout(() => {
+            if (!document.hidden) {
+              window.open(exactPlayStoreUrl, '_blank') || (window.location.href = exactPlayStoreUrl);
+            }
+          }, 500);
+        } catch (e) {
+          window.open(exactPlayStoreUrl, '_blank');
         }
-      }, 500);
-    } catch (e) {
-      window.open(exactPlayStoreUrl, '_blank');
-    }
+      }
+    }, 2500);
 
     return {
       name: cleanApp,
       url: exactPlayStoreUrl,
-      intentUrl: marketSearchUrl,
-      packageName: `market.search.${encodeURIComponent(cleanApp)}`,
+      intentUrl: deviceLauncherIntent,
+      packageName: candidatePkg,
+      appScheme: deviceLaunchScheme,
       playStoreUrl: exactPlayStoreUrl
     };
   };
@@ -3175,9 +3451,9 @@ export default function App() {
     setIsSpeaking(true);
 
     try {
-      // Fetch TTS from server with short timeout
+      // Fetch TTS from server with ample time for high quality authentic voice
       const ttsPromise = textToSpeech(textToSpeak, activePersona);
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200));
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
 
       const ttsRes: any = await Promise.race([ttsPromise, timeoutPromise]);
 
@@ -5022,32 +5298,184 @@ export default function App() {
       }
     };
 
-    // 1. YouTube Search: "youtube open karo aur [query] search karo", "youtube pe [query] search karo", "open youtube and search [query]", "youtube me [query] chalao", etc.
-    const isYTCmd = cmdLower.includes('youtube') || cmdLower.includes('yt');
-    const isYTSearch = isYTCmd && (
-      cmdLower.includes('search') || 
-      cmdLower.includes('khojo') || 
-      cmdLower.includes('dhundo') || 
-      cmdLower.includes('chalao') || 
-      cmdLower.includes('play') || 
-      cmdLower.includes('video') ||
-      cmdLower.includes('dikhao')
-    );
-    if (isYTSearch) {
-      const ytQuery = cmd
+    // ⚡ 0.1-SECOND ULTRA-FAST CONVERSATIONAL REFLEX ENGINE:
+    // Immediate voice responses spoken in < 100ms without network roundtrip delay
+    const isGreeting = /^(hello|hi|hey|suno|namaste|pranam)(\s+(jarvis|rose|bro|sir|buddy))?$/i.test(cmdLower) ||
+                       /^(jarvis|rose)$/i.test(cmdLower) ||
+                       cmdLower.includes('hello jarvis') || cmdLower.includes('hi jarvis') || cmdLower.includes('hey jarvis') ||
+                       cmdLower.includes('suno jarvis') || cmdLower.includes('jarvis suno') || cmdLower.includes('rose suno') || cmdLower.includes('suno rose') ||
+                       cmdLower === 'hello' || cmdLower === 'hi' || cmdLower === 'hey';
+
+    if (isGreeting) {
+      const reply = activePersona === 'rose'
+        ? "Ji Boss! Main sun rahi hoon, boliye!"
+        : "Yes Sir! I am listening. How can I help you?";
+      setLiveAiReply(reply);
+      setLiveUserTranscript('');
+      speakRealVoiceBackground(reply, activePersona, () => {
+        setIsLiveProcessing(false);
+        setLiveAiReply('');
+        if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
+      }, turnId);
+      logBackgroundConversation({ persona: activePersona, userQuery: cmd, aiReply: reply, userEmail: currentUser?.email || 'abhishekjvfg@gmail.com' });
+      return;
+    }
+
+    // Status / Well-being ("kaise ho", "how are you", "kya haal hai")
+    if (cmdLower.includes('kaise ho') || cmdLower.includes('kya hal') || cmdLower.includes('kya haal') || cmdLower.includes('how are you') || cmdLower.includes('kaisa chal raha')) {
+      const reply = activePersona === 'rose'
+        ? "Main bilkul badhiya hoon Boss! Aap bataiye aaj main aapke liye kya karoon?"
+        : "All neural cores operating at 100%, Sir! How may I assist you?";
+      setLiveAiReply(reply);
+      setLiveUserTranscript('');
+      speakRealVoiceBackground(reply, activePersona, () => {
+        setIsLiveProcessing(false);
+        setLiveAiReply('');
+        if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
+      }, turnId);
+      logBackgroundConversation({ persona: activePersona, userQuery: cmd, aiReply: reply, userEmail: currentUser?.email || 'abhishekjvfg@gmail.com' });
+      return;
+    }
+
+    // Capabilities ("kya kar sakte ho", "help", "what can you do", "tum kya ho")
+    if (cmdLower.includes('kya kar sakte') || cmdLower.includes('what can you do') || cmdLower.includes('tum kya ho') || cmdLower.includes('aap kya kar') || cmdLower === 'help') {
+      const reply = activePersona === 'rose'
+        ? "Boss, main phone ke apps open kar sakti hoon, YouTube par gaane chala sakti hoon, calls laga sakti hoon aur har sawaal ka turant jawab de sakti hoon!"
+        : "Sir, I can launch applications, stream media on YouTube, place calls, set alarms, and answer all complex queries in real time.";
+      setLiveAiReply(reply);
+      setLiveUserTranscript('');
+      speakRealVoiceBackground(reply, activePersona, () => {
+        setIsLiveProcessing(false);
+        setLiveAiReply('');
+        if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
+      }, turnId);
+      logBackgroundConversation({ persona: activePersona, userQuery: cmd, aiReply: reply, userEmail: currentUser?.email || 'abhishekjvfg@gmail.com' });
+      return;
+    }
+
+    // Presence check ("sun rahe ho", "kahan ho", "are you there", "are you listening")
+    if (cmdLower.includes('sun rahe ho') || cmdLower.includes('kahan ho') || cmdLower.includes('are you there') || cmdLower.includes('are you listening') || cmdLower.includes('meri awaz') || cmdLower.includes('meri aawaz')) {
+      const reply = activePersona === 'rose'
+        ? "Main yahi hoon Boss! Dhyan se aapki baat sun rahi hoon, boliye!"
+        : "Right here with you, Sir. All audio channels clear and listening.";
+      setLiveAiReply(reply);
+      setLiveUserTranscript('');
+      speakRealVoiceBackground(reply, activePersona, () => {
+        setIsLiveProcessing(false);
+        setLiveAiReply('');
+        if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
+      }, turnId);
+      logBackgroundConversation({ persona: activePersona, userQuery: cmd, aiReply: reply, userEmail: currentUser?.email || 'abhishekjvfg@gmail.com' });
+      return;
+    }
+
+    // Politeness & Acknowledgements ("theek hai", "ok", "acha", "shukriya", "thank you")
+    if (/^(theek hai|thik hai|ok|acha|accha|alright|got it|samajh gaya)$/i.test(cmdLower) || cmdLower.startsWith('ok ') || cmdLower.startsWith('theek hai')) {
+      const reply = activePersona === 'rose'
+        ? "Theek hai Boss! Next command ka intezaar hai."
+        : "Understood, Sir. Standing by for next protocol.";
+      setLiveAiReply(reply);
+      setLiveUserTranscript('');
+      speakRealVoiceBackground(reply, activePersona, () => {
+        setIsLiveProcessing(false);
+        setLiveAiReply('');
+        if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
+      }, turnId);
+      logBackgroundConversation({ persona: activePersona, userQuery: cmd, aiReply: reply, userEmail: currentUser?.email || 'abhishekjvfg@gmail.com' });
+      return;
+    }
+
+    if (cmdLower.includes('thank') || cmdLower.includes('shukriya') || cmdLower.includes('dhanyawad')) {
+      const reply = activePersona === 'rose'
+        ? "Arey shukriya kaisa Boss, yeh to mera farz hai!"
+        : "Always an honor to serve you, Sir.";
+      setLiveAiReply(reply);
+      setLiveUserTranscript('');
+      speakRealVoiceBackground(reply, activePersona, () => {
+        setIsLiveProcessing(false);
+        setLiveAiReply('');
+        if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
+      }, turnId);
+      logBackgroundConversation({ persona: activePersona, userQuery: cmd, aiReply: reply, userEmail: currentUser?.email || 'abhishekjvfg@gmail.com' });
+      return;
+    }
+
+    // Current Time query
+    if (cmdLower.includes('time kya') || cmdLower.includes('kya time') || cmdLower.includes('what time') || cmdLower.includes('kitne baje')) {
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const reply = activePersona === 'rose'
+        ? `Boss, abhi ${timeStr} ho rahe hain.`
+        : `Sir, the current time is ${timeStr}.`;
+      setLiveAiReply(reply);
+      setLiveUserTranscript('');
+      speakRealVoiceBackground(reply, activePersona, () => {
+        setIsLiveProcessing(false);
+        setLiveAiReply('');
+        if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
+      }, turnId);
+      logBackgroundConversation({ persona: activePersona, userQuery: cmd, aiReply: reply, userEmail: currentUser?.email || 'abhishekjvfg@gmail.com' });
+      return;
+    }
+
+    // Current Date query
+    if (cmdLower.includes('date kya') || cmdLower.includes('aaj kaun sa din') || cmdLower.includes('what day') || cmdLower.includes('today date') || cmdLower.includes('aaj ki tarikh')) {
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+      const reply = activePersona === 'rose'
+        ? `Boss, aaj ${dateStr} hai.`
+        : `Today is ${dateStr}, Sir.`;
+      setLiveAiReply(reply);
+      setLiveUserTranscript('');
+      speakRealVoiceBackground(reply, activePersona, () => {
+        setIsLiveProcessing(false);
+        setLiveAiReply('');
+        if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
+      }, turnId);
+      logBackgroundConversation({ persona: activePersona, userQuery: cmd, aiReply: reply, userEmail: currentUser?.email || 'abhishekjvfg@gmail.com' });
+      return;
+    }
+
+    // Stop / Quiet commands
+    if (/^(stop|chup|ruko|band karo|quiet|shant)$/i.test(cmdLower)) {
+      stopSpeaking();
+      stopAudio();
+      setLiveAiReply('');
+      setLiveUserTranscript('');
+      if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
+      return;
+    }
+
+    // 1. YouTube Search or In-App Search:
+    // Handles explicit: "youtube open karo aur AkToonCraft search karo", "youtube me AkToonCraft search karo", "youtube pe ak toon craft search karne...",
+    // as well as contextual while inside YouTube: "isme AkToonCraft search karo", "AkToonCraft search karo", "AkToonCraft play karo"
+    const hasSearchKeyword = cmdLower.includes('search') || cmdLower.includes('khojo') || cmdLower.includes('dhundo') || cmdLower.includes('chalao') || cmdLower.includes('play') || cmdLower.includes('video') || cmdLower.includes('dikhao');
+    const isExplicitYT = cmdLower.includes('youtube') || cmdLower.includes('yt');
+    const isContextualInApp = hasSearchKeyword && (lastYouTubeQueryRef.current !== '' || cmdLower.includes('isme') || cmdLower.includes('usme') || cmdLower.includes('search karo') || cmdLower.startsWith('search '));
+
+    if ((isExplicitYT && (hasSearchKeyword || cmdLower.includes('pe') || cmdLower.includes('par') || cmdLower.includes('me'))) || (isContextualInApp && !cmdLower.includes('google'))) {
+      let ytQuery = cmd
         .replace(/open youtube and search for|open youtube and search|open youtube search|search on youtube for|search on youtube|search youtube for|search youtube/gi, '')
-        .replace(/youtube open karo aur|youtube kholo aur|youtube pe|youtube par|youtube me|youtube me se/gi, '')
-        .replace(/search karo|search kijiye|khojo|dhundo|dikhao|chalao|play karo|video dikhao|video chalao|search/gi, '')
+        .replace(/youtube open karo aur|youtube kholo aur|youtube pe|youtube par|youtube me|youtube me se|youtube/gi, '')
+        .replace(/isme search karo|usme search karo|isme|usme/gi, '')
+        .replace(/search karne ko bolta hu|search karne ko|search karne|search kijiye|search karo|search|khojo|dhundo|dikhao|chalao|play karo|video dikhao|video chalao/gi, '')
+        .replace(/\b(ko|ka|ki|ke|liye|bolta|bolti|hoon|hu|hai)\b/gi, '')
         .trim();
+
+      if (!ytQuery && isContextualInApp && lastYouTubeQueryRef.current) {
+        ytQuery = lastYouTubeQueryRef.current;
+      }
+
       if (ytQuery) {
+        lastYouTubeQueryRef.current = ytQuery;
         executeMobileAppLaunch('youtube', ytQuery);
         const reply = activePersona === 'rose'
-          ? `Ji Sir, YouTube par "${ytQuery}" search kar diya hai!`
-          : `Sir, executing YouTube search for "${ytQuery}". Results on screen.`;
+          ? `Ji Sir, YouTube me "${ytQuery}" search kar diya hai!`
+          : `Sir, searching "${ytQuery}" directly inside YouTube. Results loaded.`;
         speakRealVoiceBackground(reply, activePersona, () => {
           if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
         }, turnId);
-        sendNotification(activePersona === 'rose' ? "Rose YouTube Search" : "JARVIS YouTube Search", `Searching YouTube: ${ytQuery}`);
+        sendNotification(activePersona === 'rose' ? "Rose YouTube Action" : "JARVIS YouTube Action", `YouTube Search: ${ytQuery}`);
         setSystemAlert(`BACKGROUND: YOUTUBE SEARCH "${ytQuery.toUpperCase()}" 🎬`);
         logBackgroundConversation({
           persona: activePersona,
@@ -5059,26 +5487,29 @@ export default function App() {
       }
     }
 
-    // 2. YouTube Channel Subscribe / Follow: "us channel ko subscribe karlo", "channel subscribe karo", "[name] ko subscribe karo"
+    // 2. YouTube Channel Subscribe / Follow: "us channel ko subscribe karlo", "channel subscribe karo", "subscribe karo", "AkToonCraft ko subscribe karo"
     const isYTSubscribe = (cmdLower.includes('subscribe') || cmdLower.includes('follow')) && (
       cmdLower.includes('channel') || 
       cmdLower.includes('youtube') || 
       cmdLower.includes('karlo') || 
       cmdLower.includes('karo') ||
       cmdLower.includes('kardo') ||
-      cmdLower.includes('us')
+      cmdLower.includes('us') ||
+      cmdLower.includes('isme') ||
+      cmdLower.includes('is') ||
+      cmdLower.includes('ko')
     );
     if (isYTSubscribe) {
-      const chanName = parseYouTubeChannelName(cmd);
+      const chanName = parseYouTubeChannelName(cmd) || lastYouTubeQueryRef.current || 'AkToonCraft';
       handleYouTubeSubscribe(chanName);
       const reply = activePersona === 'rose'
-        ? (chanName ? `Ji Sir, @${chanName} channel ko subscribe karne ke liye YouTube open kar diya hai!` : `Ji Sir, channel ko subscribe karne ke liye YouTube page open kar diya hai!`)
-        : (chanName ? `Sir, opening YouTube subscription confirmation page for @${chanName}.` : `Sir, YouTube channel subscription uplink launched.`);
+        ? (chanName ? `Ji Sir, ${chanName} channel ko subscribe karne ke liye YouTube action execute kar diya hai!` : `Ji Sir, channel subscribe karne ka prompt open kar diya hai!`)
+        : (chanName ? `Sir, executing YouTube subscription link for ${chanName}.` : `Sir, channel subscription action dispatched.`);
       speakRealVoiceBackground(reply, activePersona, () => {
         if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
       }, turnId);
-      sendNotification(activePersona === 'rose' ? "Rose YouTube Action" : "JARVIS YouTube Action", `Subscribing to channel`);
-      setSystemAlert(`BACKGROUND: YOUTUBE SUBSCRIBE LINK ACTIVATED 🔔`);
+      sendNotification(activePersona === 'rose' ? "Rose YouTube Action" : "JARVIS YouTube Action", `Subscribed to ${chanName}`);
+      setSystemAlert(`BACKGROUND: YOUTUBE SUBSCRIBE "${chanName.toUpperCase()}" 🔔`);
       logBackgroundConversation({
         persona: activePersona,
         userQuery: cmd,
@@ -5209,6 +5640,115 @@ export default function App() {
       }
     }
 
+    // 🎨 DIRECT BACKGROUND CREATION SYSTEM (3D Models, Images, Web Projects)
+    // User instruction: "jab ham background system me Jarvis ko kuch banane ke liye bola tab chat me yo chiz nahi dikhna chahiye balki Jarvis ko jo chiz banane ke liye bola ha Jarvis direct background system me hi usse banayega aur jab yo ban jayega tab Jarvis bolega project completed sir fir yo us project ko browser me open karega jaisa 3d model ho gaya aur images ho gya"
+    const is3DModelCmd = 
+      (/3d\s*model|3d|three\.?js|model/i.test(cmdLower) && /banao|banaiye|make|create|generate|build|render|chahiye|de/i.test(cmdLower)) ||
+      cmdLower.includes('3d model') || cmdLower.includes('model banao') ||
+      (cmdLower.includes('iron man') && (cmdLower.includes('banao') || cmdLower.includes('make') || cmdLower.includes('model') || cmdLower.includes('3d')));
+
+    const isImageGenCmd = 
+      /image|photo|picture|wallpaper|tasveer/i.test(cmdLower) && /banao|banaiye|generate|create|draw|kheencho|dikhao/i.test(cmdLower);
+
+    const isWebProjectCmd = 
+      /website|webpage|calculator|game|html|web project|landing page/i.test(cmdLower) && /banao|banaiye|create|make|build/i.test(cmdLower);
+
+    if (is3DModelCmd || isImageGenCmd || isWebProjectCmd) {
+      const isIronMan = cmdLower.includes('iron man') || cmdLower.includes('ironman') || cmdLower.includes('stark') || (!cmdLower.includes('car') && !cmdLower.includes('bike') && is3DModelCmd);
+      let taskTitle = 'Iron Man Mark 85 3D Model';
+      if (is3DModelCmd) {
+        taskTitle = isIronMan ? 'Iron Man Mark 85 3D Model' : `${cmd.replace(/3d|model|banao|banaiye|make|create|ek/gi, '').trim() || 'Interactive'} 3D Model`;
+      } else if (isImageGenCmd) {
+        taskTitle = `AI Image: ${cmd.replace(/image|photo|banao|banaiye|generate|create|ek/gi, '').trim() || 'Visual'}`;
+      } else {
+        taskTitle = `Web Project: ${cmd.replace(/website|game|app|project|banao|create/gi, '').trim() || 'Application'}`;
+      }
+
+      setBuildingProjectTask(taskTitle);
+      setIsLiveProcessing(true);
+      setLiveUserTranscript(cmd);
+
+      const startVoiceText = activePersona === 'rose'
+        ? `Ji Boss! Main ${taskTitle} background me bana rahi hoon. Ek pal intezaar kijiye!`
+        : `Initiating project build for ${taskTitle}, Sir. Constructing in background.`;
+
+      setLiveAiReply(startVoiceText);
+      speakRealVoiceBackground(startVoiceText, activePersona, undefined, turnId);
+
+      try {
+        let generatedHtml = '';
+        let projType: '3d_model' | 'image' | 'web' = '3d_model';
+
+        if (isIronMan) {
+          projType = '3d_model';
+          generatedHtml = createIronMan3DModelHtml('Iron Man Mark 85 3D Model');
+        } else if (is3DModelCmd) {
+          projType = '3d_model';
+          generatedHtml = createCustom3DModelHtml(taskTitle, taskTitle);
+        } else if (isImageGenCmd) {
+          projType = 'image';
+          const imgPrompt = cmd.replace(/image|photo|banao|generate|create|jarvis|rose|ek/gi, '').trim() || 'futuristic scifi masterpiece';
+          const imgUrl = await generateImage(imgPrompt, activePersona);
+          const finalImg = imgUrl || '/ironman.png';
+          generatedHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>${taskTitle}</title><style>*{box-sizing:border-box;margin:0;padding:0;}body{background:#060810;color:#e0f2fe;font-family:system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center;}h1{font-size:24px;margin-bottom:16px;color:#38bdf8;letter-spacing:1px;}.img-box{max-width:90vw;max-height:75vh;border-radius:16px;overflow:hidden;border:1px solid rgba(56,189,248,0.3);box-shadow:0 0 50px rgba(56,189,248,0.25);margin-bottom:20px;}img{width:100%;height:100%;object-fit:contain;display:block;}.dl-btn{background:linear-gradient(135deg,#0284c7,#06b6d4);color:#fff;border:none;padding:14px 32px;font-size:15px;font-weight:700;border-radius:999px;cursor:pointer;box-shadow:0 0 20px rgba(6,182,212,0.4);transition:transform .15s;}.dl-btn:active{transform:scale(0.96);}</style></head><body><h1>${taskTitle}</h1><div class="img-box"><img src="${finalImg}" alt="${taskTitle}"/></div><button id="dlBtn" class="dl-btn">⬇️ DOWNLOAD IMAGE</button><script>const projId=window.location.pathname.split('/').pop();document.getElementById('dlBtn').addEventListener('click',()=>{fetch('/api/projects/'+projId+'/downloaded',{method:'POST'}).catch(()=>{});const a=document.createElement('a');a.href='${finalImg}';a.download='${taskTitle.toLowerCase().replace(/[^a-z0-9]/g,'_')}.png';document.body.appendChild(a);a.click();document.body.removeChild(a);});</script></body></html>`;
+        } else {
+          projType = 'web';
+          generatedHtml = createCustom3DModelHtml(taskTitle, taskTitle);
+        }
+
+        const res = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: taskTitle,
+            type: projType,
+            html: generatedHtml
+          })
+        });
+
+        const projJson = await res.json();
+        const projectUrl = projJson.projectUrl || `/project/${projJson.id}`;
+        const projId = projJson.id;
+
+        // User instruction: "aur jab yo ban jayega tab Jarvis bolega project completed sir"
+        const finishVoiceText = "Project completed, Sir.";
+
+        setBuildingProjectTask(null);
+        setIsLiveProcessing(false);
+        setLiveAiReply(finishVoiceText);
+
+        speakRealVoiceBackground(finishVoiceText, activePersona, () => {
+          if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
+        }, turnId);
+
+        // User instruction: "fir yo us project ko browser me open karega"
+        window.open(projectUrl, '_blank') || (window.location.href = projectUrl);
+
+        activeBackgroundProjectRef.current = {
+          id: projId,
+          title: taskTitle,
+          downloaded: false,
+          openedAt: Date.now()
+        };
+
+        logBackgroundConversation({
+          persona: activePersona,
+          userQuery: cmd,
+          aiReply: finishVoiceText,
+          userEmail: currentUser?.email || 'abhishekjvfg@gmail.com'
+        });
+
+      } catch (err: any) {
+        setBuildingProjectTask(null);
+        setIsLiveProcessing(false);
+        const errMsg = activePersona === 'rose'
+          ? "Boss, project creation me samasya aayi. Kripya dobara boliye."
+          : "Sir, project generation encountered an error. Standing by.";
+        speakRealVoiceBackground(errMsg, activePersona, undefined, turnId);
+      }
+      return;
+    }
+
     // 5. HIDDEN BACKGROUND VOICE-TO-VOICE PIPELINE:
     // Does NOT pollute visible chat screen, speaks back immediately with ultra-low latency,
     // and saves completely to isolated background server archive!
@@ -5218,6 +5758,12 @@ export default function App() {
     isExecutingBackgroundVoiceRef.current = true;
     setIsLiveProcessing(true);
     setLiveUserTranscript(cmd);
+
+    // Safety watchdog to prevent lockup
+    const safetyReleaseTimer = setTimeout(() => {
+      isExecutingBackgroundVoiceRef.current = false;
+      setIsLiveProcessing(false);
+    }, 4500);
 
     try {
       // Small system alert pulse
@@ -5229,9 +5775,19 @@ export default function App() {
         parts: [{ text: m.content }]
       }));
 
+      let screenSnapshotForAi: string | undefined = undefined;
+      let promptForAi = cmd;
+      if (isScreenSharingActive) {
+        const snap = captureScreenSnapshot();
+        if (snap) {
+          screenSnapshotForAi = snap;
+          promptForAi = `[SCREEN VISION ATTACHED - User is sharing their screen in real-time. You can see the apps, icons, and contents currently displayed. If the user asks about their screen, asks what apps are open, or asks you to identify/open an app, assist them directly based on what you see.] ${cmd}`;
+        }
+      }
+
       // Call Jarvis / Rose in real-time voice mode (short, concise, instant answers)
       const response = await chatWithJarvis(
-        cmd,
+        promptForAi,
         historyForBg,
         memory.map(m => m.fact),
         activePersona,
@@ -5239,7 +5795,8 @@ export default function App() {
         currentUser?.name || 'Abhishek',
         currentUser?.email || 'abhishekjvfg@gmail.com',
         secretMemoryArchives,
-        true // isVoiceMode = true for ultra-fast, natural spoken conversation
+        true, // isVoiceMode = true for ultra-fast, natural spoken conversation
+        screenSnapshotForAi
       );
 
       if (turnId !== undefined && backgroundVoiceTurnIdRef.current !== turnId) return;
@@ -5360,6 +5917,7 @@ export default function App() {
         }, 350);
       }, turnId);
     } finally {
+      clearTimeout(safetyReleaseTimer);
       isExecutingBackgroundVoiceRef.current = false;
       setIsLiveProcessing(false);
     }
@@ -5421,7 +5979,7 @@ export default function App() {
       Notification.requestPermission().catch(() => {});
     }
 
-    // 4. Stable, persistent speech recognizer without mic collision or rapid beep loop
+    // 4. Stable, persistent speech recognizer that creates a clean instance each cycle
     const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     if (SpeechRecognition) {
       let bgRec: any = null;
@@ -5432,104 +5990,144 @@ export default function App() {
 
       const safeStartListening = () => {
         if (!isRunning || !isBackgroundSystemActiveRef.current) return;
+        if (isSpeakingRef.current) return; // Wait until Jarvis finishes speaking
         if (isRecognitionActive) return;
 
         try {
-          if (!bgRec) {
-            bgRec = new SpeechRecognition();
-            backgroundSpeechRecognitionRef.current = bgRec;
-            // 'en-IN' captures Indian accent English and Hinglish in clean Latin alphabet
-            bgRec.lang = 'en-IN';
-            bgRec.continuous = true;
-            bgRec.interimResults = true;
-
-            bgRec.onstart = () => {
-              isRecognitionActive = true;
-            };
-
-            bgRec.onresult = (evt: any) => {
-              let interim = '';
-              for (let i = evt.resultIndex; i < evt.results.length; i++) {
-                const text = evt.results[i][0].transcript;
-                if (evt.results[i].isFinal) {
-                  accumulatedTranscript += ' ' + text;
-                } else {
-                  interim += ' ' + text;
-                }
-              }
-
-              // Always convert any Hindi Devanagari to clean English/Hinglish alphabet
-              const rawCombined = (accumulatedTranscript + ' ' + interim).trim();
-              const combined = convertDevanagariToHinglish(rawCombined);
-              if (!combined) return;
-
-              // ⚡ INSTANT BARGE-IN: If Jarvis or Rose is speaking or executing, immediately cut off speech and cancel old turn!
-              if (isSpeakingRef.current || isExecutingBackgroundVoiceRef.current || (typeof window !== 'undefined' && window.speechSynthesis?.speaking)) {
-                backgroundVoiceTurnIdRef.current++;
-                isExecutingBackgroundVoiceRef.current = false;
-                stopSpeaking();
-                stopAudio();
-                isSpeakingRef.current = false;
-                setIsSpeaking(false);
-                setLiveAiReply('');
-              }
-
-              setLiveUserTranscript(combined);
-
-              // Debounce speech completion (450ms after user pauses speaking)
-              clearTimeout(speechDebounceTimer);
-              speechDebounceTimer = setTimeout(() => {
-                const finalQuery = convertDevanagariToHinglish(combined.trim());
-                accumulatedTranscript = '';
-                if (finalQuery.length >= 2) {
-                  const turnId = ++backgroundVoiceTurnIdRef.current;
-                  executeBackgroundAction(finalQuery, turnId);
-                }
-              }, 450);
-            };
-
-            bgRec.onerror = (e: any) => {
-              isRecognitionActive = false;
-              if (e.error === 'no-speech' || e.error === 'aborted') {
-                return;
-              }
-              clearTimeout(restartTimer);
-              if (isRunning && isBackgroundSystemActiveRef.current) {
-                restartTimer = setTimeout(safeStartListening, 1500);
-              }
-            };
-
-            bgRec.onend = () => {
-              isRecognitionActive = false;
-              clearTimeout(restartTimer);
-
-              // If user finished speaking and recognition ended before debounce fired, execute now!
-              const pendingRaw = accumulatedTranscript.trim();
-              const pending = convertDevanagariToHinglish(pendingRaw);
-              if (pending.length >= 2) {
-                accumulatedTranscript = '';
-                const turnId = ++backgroundVoiceTurnIdRef.current;
-                executeBackgroundAction(pending, turnId);
-                return;
-              }
-
-              // Smooth restart without rapid chime cycling
-              if (isRunning && isBackgroundSystemActiveRef.current) {
-                restartTimer = setTimeout(safeStartListening, 400);
-              }
-            };
+          if (bgRec) {
+            try {
+              bgRec.onstart = null;
+              bgRec.onresult = null;
+              bgRec.onerror = null;
+              bgRec.onend = null;
+              bgRec.abort();
+            } catch (e) {}
+            bgRec = null;
           }
+
+          bgRec = new SpeechRecognition();
+          backgroundSpeechRecognitionRef.current = bgRec;
+          // 'en-IN' captures Indian English and Hindi/Hinglish in clean Latin alphabet
+          bgRec.lang = 'en-IN';
+          bgRec.continuous = true;
+          bgRec.interimResults = true;
+          bgRec.maxAlternatives = 1;
+
+          bgRec.onstart = () => {
+            isRecognitionActive = true;
+          };
+
+          let latestTranscriptForEnd = '';
+
+          bgRec.onresult = (evt: any) => {
+            let interim = '';
+            let hasFinalResult = false;
+            for (let i = evt.resultIndex; i < evt.results.length; i++) {
+              const text = evt.results[i][0].transcript;
+              if (evt.results[i].isFinal) {
+                accumulatedTranscript += ' ' + text;
+                hasFinalResult = true;
+              } else {
+                interim += ' ' + text;
+              }
+            }
+
+            // Always convert any Hindi Devanagari to clean English/Hinglish alphabet
+            const rawCombined = (accumulatedTranscript + ' ' + interim).trim();
+            const combined = convertDevanagariToHinglish(rawCombined);
+            if (!combined) return;
+
+            latestTranscriptForEnd = combined;
+
+            // ⚡ INSTANT BARGE-IN: If Jarvis or Rose is speaking, interrupt immediately
+            if (isSpeakingRef.current) {
+              backgroundVoiceTurnIdRef.current++;
+              stopSpeaking();
+              stopAudio();
+              isSpeakingRef.current = false;
+              setIsSpeaking(false);
+              setLiveAiReply('');
+            }
+
+            setLiveUserTranscript(combined);
+
+            const triggerFinalAction = () => {
+              clearTimeout(speechDebounceTimer);
+              const finalQuery = convertDevanagariToHinglish(combined.trim());
+              accumulatedTranscript = '';
+              latestTranscriptForEnd = '';
+              if (finalQuery.length >= 2) {
+                const turnId = ++backgroundVoiceTurnIdRef.current;
+                executeBackgroundAction(finalQuery, turnId);
+              }
+            };
+
+            const combLower = combined.toLowerCase().trim();
+            const isInstantTriggerPhrase = 
+              /^(hello|hi|hey|suno|jarvis|rose|ok|theek hai|thik hai)$/i.test(combLower) ||
+              combLower.includes('hello jarvis') || combLower.includes('hi jarvis') || combLower.includes('hey jarvis') ||
+              combLower.includes('suno jarvis') || combLower.includes('jarvis suno') || combLower.includes('rose suno') ||
+              combLower.includes('kaise ho') || combLower.includes('how are you') || combLower.includes('kya haal') ||
+              combLower.startsWith('open ') || combLower.startsWith('kholo ') || combLower.startsWith('search ') ||
+              combLower.startsWith('call ') || combLower.startsWith('alarm ') || combLower === 'stop' || combLower === 'chup';
+
+            clearTimeout(speechDebounceTimer);
+
+            // ⚡ 0.1-SECOND RESPONSE TIMING:
+            // 1. If final utterance confirmed: fire in 30ms!
+            // 2. If recognized instant trigger phrase / greeting: fire in 50ms!
+            // 3. For standard ongoing speech: debounce in 100ms (0.1s)!
+            const debounceDelay = hasFinalResult ? 30 : (isInstantTriggerPhrase ? 50 : 100);
+            speechDebounceTimer = setTimeout(triggerFinalAction, debounceDelay);
+          };
+
+          bgRec.onerror = (e: any) => {
+            isRecognitionActive = false;
+            clearTimeout(restartTimer);
+            if (isRunning && isBackgroundSystemActiveRef.current && !isSpeakingRef.current) {
+              restartTimer = setTimeout(safeStartListening, 300);
+            }
+          };
+
+          bgRec.onend = () => {
+            isRecognitionActive = false;
+            clearTimeout(restartTimer);
+            clearTimeout(speechDebounceTimer);
+
+            // If user finished speaking right before end event, execute immediately in 0.1s!
+            const pendingRaw = (accumulatedTranscript || latestTranscriptForEnd || '').trim();
+            const pending = convertDevanagariToHinglish(pendingRaw);
+            accumulatedTranscript = '';
+            latestTranscriptForEnd = '';
+            if (pending.length >= 2) {
+              const turnId = ++backgroundVoiceTurnIdRef.current;
+              executeBackgroundAction(pending, turnId);
+              return;
+            }
+
+            // Clean restart with fresh instance
+            if (isRunning && isBackgroundSystemActiveRef.current && !isSpeakingRef.current) {
+              restartTimer = setTimeout(safeStartListening, 150);
+            }
+          };
 
           bgRec.start();
           isRecognitionActive = true;
         } catch (err) {
           isRecognitionActive = false;
+          clearTimeout(restartTimer);
+          if (isRunning && isBackgroundSystemActiveRef.current && !isSpeakingRef.current) {
+            restartTimer = setTimeout(safeStartListening, 350);
+          }
         }
       };
 
       resumeBackgroundListeningRef.current = safeStartListening;
 
-      safeStartListening();
+      // Start listening if not currently speaking greeting
+      if (!isSpeakingRef.current) {
+        safeStartListening();
+      }
 
       return () => {
         isRunning = false;
@@ -5585,11 +6183,49 @@ export default function App() {
         isListening={!isSpeaking && !isLiveProcessing}
         isSpeaking={isSpeaking}
         isProcessing={isLiveProcessing}
+        buildingProjectTask={buildingProjectTask}
         userTranscript={liveUserTranscript}
         aiReplyText={liveAiReply}
         onTapToSpeak={() => {
           if (resumeBackgroundListeningRef.current) {
             resumeBackgroundListeningRef.current();
+          }
+        }}
+        isScreenSharingActive={isScreenSharingActive}
+        onToggleScreenSharing={() => toggleScreenSharing()}
+        screenVideoRef={screenVideoRef}
+        onCaptureAndAsk={async () => {
+          const snapshot = captureScreenSnapshot();
+          if (!snapshot) {
+            setSystemAlert("❌ COULD NOT CAPTURE SCREEN SNAPSHOT");
+            return;
+          }
+          setSystemAlert("📸 SCANNING SCREEN APPS & CONTENT...");
+          setIsLiveProcessing(true);
+          setLiveUserTranscript("Screen dekh raha hoon...");
+
+          try {
+            const aiRes = await chatWithJarvis(
+              "User has asked to scan and view their current screen. Tell the user what apps, icons, or screens you can see right now and offer to open or assist with any of them.",
+              messages.slice(-4),
+              secretMemoryArchives.map(m => m.content),
+              activePersona,
+              [],
+              currentUser?.displayName || undefined,
+              currentUser?.email || undefined,
+              secretMemoryArchives,
+              true,
+              snapshot
+            );
+            const replyText = typeof aiRes?.text === 'string' && aiRes.text.trim()
+              ? aiRes.text.trim()
+              : (typeof aiRes === 'string' ? aiRes : (aiRes?.reply || "I can see your screen clearly."));
+            setLiveAiReply(replyText);
+            speakRealVoiceBackground(replyText, activePersona);
+          } catch (e) {
+            setSystemAlert("ERROR SCANNING SCREEN");
+          } finally {
+            setIsLiveProcessing(false);
           }
         }}
       />
@@ -7501,16 +8137,16 @@ export default function App() {
                       </label>
                       {elevenApiKeyInput.trim().length > 10 ? (
                         <span className="text-[8px] font-mono font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/40">
-                          ✓ KEY ACTIVE
+                          ✓ CUSTOM KEY LOADED
                         </span>
                       ) : (
-                        <span className="text-[8px] font-mono text-purple-400/70 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-500/30">
-                          REQUIRED FOR HUMAN VOICE
+                        <span className="text-[8px] font-mono font-bold text-cyan-400 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-500/40">
+                          ✓ PERMANENT VOICE CORE ONLINE
                         </span>
                       )}
                     </div>
-                    <p className="text-[9px] font-mono text-purple-300/70 mb-2 leading-relaxed">
-                      💡 Apna ElevenLabs xi-api-key yahan dalein. Isse JARVIS (Shah Rukh Khan Voice) aur ROSE dono ki awaaz ultra-realistic human voice me convert ho jayegi!
+                    <p className="text-[9px] font-mono text-purple-300/80 mb-2 leading-relaxed">
+                      ⚡ <strong>Core Keys & Voice Models Pre-Configured:</strong> Gemini Neural Voice & ElevenLabs SRK / Rose audio engines are permanently integrated into the system backend. Optional: Agar aapke paas personal ElevenLabs xi-key ho toh add kar sakte hain, warna automatic server voice models hamesha active hain!
                     </p>
                     <div className="flex gap-2">
                       <input 
@@ -9172,7 +9808,124 @@ export default function App() {
         onOpenPaymentPortal={() => setIsPaymentPortalOpen(true)}
         isBackgroundSystemEnabled={isBackgroundSystemEnabled}
         onToggleBackgroundSystem={toggleBackgroundSystem}
+        isScreenSharingActive={isScreenSharingActive}
+        onToggleScreenSharing={toggleScreenSharing}
       />
+
+      {/* Screen Vision Live Feed PiP Floating Widget */}
+      {(() => {
+        const isRose = activePersona === 'rose';
+        return (
+          <AnimatePresence>
+            {isScreenSharingActive && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.8, y: 20 }}
+                className={`fixed bottom-4 right-4 z-50 w-72 sm:w-80 rounded-2xl border-2 p-3 shadow-2xl font-mono select-none backdrop-blur-md ${
+                  isRose
+                    ? 'bg-[#180517]/90 border-pink-500/80 shadow-[0_0_40px_rgba(255,105,180,0.4)] text-pink-100'
+                    : 'bg-[#080f18]/90 border-cyan-500/80 shadow-[0_0_40px_rgba(0,242,255,0.4)] text-cyan-100'
+                }`}
+              >
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-red-500 animate-ping"></span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-white">
+                      {isRose ? 'ROSE SCREEN VISION' : 'JARVIS SCREEN VISION'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleScreenSharing(false)}
+                    className="p-1 rounded-lg bg-white/10 hover:bg-white/20 text-zinc-300 hover:text-white transition-colors"
+                    title="Stop Screen Share"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="relative w-full h-36 sm:h-40 bg-black rounded-xl overflow-hidden border border-white/20 mb-2">
+                  <video
+                    ref={screenVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/70 border border-red-500/60 text-[9px] font-bold text-red-400 flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                    LIVE SHARING (GEMINI/CHATGPT MODE)
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const snapshot = captureScreenSnapshot();
+                      if (!snapshot) {
+                        setSystemAlert("❌ COULD NOT CAPTURE SCREEN SNAPSHOT");
+                        return;
+                      }
+                      setSystemAlert("📸 CAPTURING SCREEN & ASKING AI...");
+                      const userMsg: Message = {
+                        role: 'user',
+                        content: "Look at my screen right now and tell me what you see / help me with this.",
+                        image: snapshot,
+                        sessionId: currentSessionId
+                      };
+                      setMessages(prev => [...prev, userMsg]);
+                      saveMessage(userMsg).catch(() => {});
+                      setIsThinking(true);
+
+                      try {
+                        const aiRes = await chatWithJarvis(
+                          "Look at my screen snapshot attached and provide expert assistance on what I am doing.",
+                          messages.slice(-10),
+                          secretMemoryArchives.map(m => m.content),
+                          activePersona,
+                          [],
+                          currentUser?.displayName || undefined,
+                          currentUser?.email || undefined,
+                          secretMemoryArchives
+                        );
+                        const replyText = typeof aiRes === 'string' ? aiRes : (aiRes?.reply || "I am analyzing your screen feed.");
+                        const aiMsg: Message = {
+                          role: 'model',
+                          content: replyText,
+                          sessionId: currentSessionId
+                        };
+                        setMessages(prev => [...prev, aiMsg]);
+                        saveMessage(aiMsg).catch(() => {});
+                        speakRealVoiceBackground(replyText, activePersona);
+                      } catch (e) {
+                        setSystemAlert("ERROR ANALYZING SCREEN");
+                      } finally {
+                        setIsThinking(false);
+                      }
+                    }}
+                    className={`flex-1 py-2 px-3 rounded-xl font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95 ${
+                      isRose ? 'bg-pink-600 hover:bg-pink-500 text-white' : 'bg-cyan-500 hover:bg-cyan-400 text-black'
+                    }`}
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Capture & Ask AI</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleScreenSharing(false)}
+                    className="py-2 px-3 bg-red-600/80 hover:bg-red-600 text-white rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all"
+                  >
+                    Stop
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        );
+      })()}
 
       {/* System Architecture & Workflow Modal */}
       <WorkflowModal

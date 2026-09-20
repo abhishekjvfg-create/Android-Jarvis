@@ -527,8 +527,8 @@ async function startServer() {
   // API Routes
   app.post('/api/chat', async (req, res) => {
     try {
-      const { message, history, memory, secretMemoryArchives, obsidianNotes, persona, otherPersonaHistory, userName, userEmail, apiKey: customApiKey, selectedModel, isVoiceMode } = req.body;
-      console.log(`Chat request (${persona || 'jarvis'}): msg=${message?.substring(0, 50)}... user=${userName || 'Local'}, model=${selectedModel || 'default'}, voiceMode=${!!isVoiceMode}`);
+      const { message, image, history, memory, secretMemoryArchives, obsidianNotes, persona, otherPersonaHistory, userName, userEmail, apiKey: customApiKey, selectedModel, isVoiceMode } = req.body;
+      console.log(`Chat request (${persona || 'jarvis'}): msg=${message?.substring(0, 50)}... user=${userName || 'Local'}, model=${selectedModel || 'default'}, voiceMode=${!!isVoiceMode}, hasImage=${!!image}`);
 
       let specializedInstruction = persona === 'rose' ? ROSE_SYSTEM_INSTRUCTION : JARVIS_SYSTEM_INSTRUCTION;
 
@@ -843,6 +843,19 @@ async function startServer() {
 
       const toolsToPass = isCodingOrCreativeRequest ? undefined : tools;
 
+      const userParts: any[] = [{ text: message }];
+      if (image && typeof image === 'string') {
+        const matches = image.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+        if (matches) {
+          userParts.unshift({
+            inlineData: {
+              mimeType: matches[1],
+              data: matches[2]
+            }
+          });
+        }
+      }
+
       for (let keyIdx = 0; keyIdx < aiInstances.length; keyIdx++) {
         const ai = aiInstances[keyIdx];
         let keyIsInvalid = false;
@@ -850,7 +863,7 @@ async function startServer() {
           try {
             response = await ai.models.generateContent({
               model: modelName,
-              contents: [...filteredHistory, { role: 'user', parts: [{ text: message }] }],
+              contents: [...filteredHistory, { role: 'user', parts: userParts }],
               config: {
                 systemInstruction: specializedInstruction,
                 ...(toolsToPass ? { tools: toolsToPass } : {}),
@@ -1698,7 +1711,8 @@ function pcmToWavBase64(pcmBase64: string, sampleRate = 24000): string {
             let candidateVoiceIds = isRose ? roseVoiceCandidates : jarvisVoiceCandidates;
             let synthesizedAudio = null;
             // eleven_multilingual_v2 is the premier model for Hindi/Hinglish/Indian accents, followed by ultra-low-latency models
-            const modelsToTry = ['eleven_multilingual_v2', 'eleven_turbo_v2_5', 'eleven_flash_v2_5'];
+            const defaultElModel = process.env.ELEVENLABS_DEFAULT_MODEL || 'eleven_multilingual_v2';
+            const modelsToTry = [defaultElModel, 'eleven_multilingual_v2', 'eleven_turbo_v2_5', 'eleven_flash_v2_5'].filter((m, i, arr) => arr.indexOf(m) === i);
             let keyIsUnauthorized = false;
 
             for (const vId of candidateVoiceIds) {
@@ -1793,13 +1807,13 @@ function pcmToWavBase64(pcmBase64: string, sampleRate = 24000): string {
         console.warn("[TTS SYSTEM] ElevenLabs synthesis failed or keys exhausted. Gracefully falling back to Gemini Voice...");
       }
 
-      // 2. SECONDARY / FALLBACK: Gemini Voice TTS with Persona style
+      // 2. SECONDARY / FALLBACK: Gemini Voice TTS with clean, direct Persona style (no sighs, no 'aa' sounds)
       const promptText = isRose 
-        ? `Say in a sweet, clear, charming female assistant voice: ${speechText}`
-        : `Say in iconic Shah Rukh Khan (SRK) persona style with deep charismatic emotion, warmth, and passion: ${speechText}`;
+        ? `Read the following text cleanly, pleasantly, and directly as Rose without any filler sounds, sighs, or pauses: "${speechText}"`
+        : `Read the following text cleanly, confidently, and directly as Jarvis without any filler sounds, "aa", sighs, or pauses: "${speechText}"`;
       const voiceName = isRose ? 'Kore' : 'Charon';
 
-      const ttsModels = ["gemini-3.1-flash-tts-preview", "gemini-3.7-flash", "gemini-3.1-flash-lite"];
+      const ttsModels = ["gemini-3.1-flash-tts-preview"];
       let audio = null;
 
       const aiInstances = getAIInstances();
@@ -1866,6 +1880,118 @@ function pcmToWavBase64(pcmBase64: string, sampleRate = 24000): string {
     aiReply: string;
     userEmail?: string;
   }> = [];
+
+  // Background System: Isolated Server Project Vault (for 3D models, images, and creations)
+  const backgroundProjectsVault = new Map<string, {
+    id: string;
+    title: string;
+    type: string;
+    html: string;
+    downloaded: boolean;
+    createdAt: number;
+  }>();
+
+  // Create/Save a generated background project
+  app.post('/api/projects', express.json({ limit: '25mb' }), (req, res) => {
+    try {
+      const { title, type, html } = req.body;
+      const id = `proj_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const cleanTitle = title || 'Jarvis Project';
+      const cleanType = type || '3d_model';
+      const cleanHtml = html || '<!DOCTYPE html><html><body><h1>Project Ready</h1></body></html>';
+
+      backgroundProjectsVault.set(id, {
+        id,
+        title: cleanTitle,
+        type: cleanType,
+        html: cleanHtml,
+        downloaded: false,
+        createdAt: Date.now()
+      });
+
+      // Cleanup old projects if vault exceeds 50 items
+      if (backgroundProjectsVault.size > 50) {
+        const oldestKey = backgroundProjectsVault.keys().next().value;
+        if (oldestKey) backgroundProjectsVault.delete(oldestKey);
+      }
+
+      console.log(`[PROJECT VAULT] Stored project ${id}: "${cleanTitle}" (${cleanType})`);
+      res.json({
+        success: true,
+        id,
+        projectUrl: `/project/${id}`,
+        title: cleanTitle
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to create project" });
+    }
+  });
+
+  // Serve generated project standalone in browser tab
+  app.get('/project/:id', (req, res) => {
+    const project = backgroundProjectsVault.get(req.params.id);
+    if (!project) {
+      return res.status(404).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>Project Not Found</title>
+          <style>
+            body { background: #08080c; color: #fff; font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; text-align: center; }
+            .box { padding: 32px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; max-width: 400px; }
+            h2 { color: #00f2ff; margin-top: 0; }
+            p { color: #888; font-size: 14px; line-height: 1.6; }
+          </style>
+        </head>
+        <body>
+          <div class="box">
+            <h2>PROJECT SESSION CLOSED</h2>
+            <p>This project was not downloaded and has been purged from system memory as requested. You can initialize a new build in JARVIS anytime.</p>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(project.html);
+  });
+
+  // Mark project as downloaded
+  app.post('/api/projects/:id/downloaded', (req, res) => {
+    const project = backgroundProjectsVault.get(req.params.id);
+    if (project) {
+      project.downloaded = true;
+      console.log(`[PROJECT VAULT] Project ${project.id} marked as DOWNLOADED.`);
+      res.json({ success: true, downloaded: true });
+    } else {
+      res.status(404).json({ error: "Project not found" });
+    }
+  });
+
+  // Query project status
+  app.get('/api/projects/:id/status', (req, res) => {
+    const project = backgroundProjectsVault.get(req.params.id);
+    if (!project) {
+      return res.json({ exists: false, downloaded: false });
+    }
+    res.json({
+      exists: true,
+      id: project.id,
+      title: project.title,
+      type: project.type,
+      downloaded: project.downloaded,
+      createdAt: project.createdAt
+    });
+  });
+
+  // Purge/delete project
+  app.delete('/api/projects/:id', (req, res) => {
+    const deleted = backgroundProjectsVault.delete(req.params.id);
+    console.log(`[PROJECT VAULT] Purged project ${req.params.id}: ${deleted}`);
+    res.json({ success: true, purged: deleted });
+  });
 
   app.post('/api/background/log', (req, res) => {
     try {
