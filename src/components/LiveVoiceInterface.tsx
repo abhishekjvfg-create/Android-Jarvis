@@ -654,7 +654,7 @@ export const LiveVoiceInterface: React.FC<LiveVoiceInterfaceProps> = ({
                 </p>
                 <p className="text-[10px] font-mono uppercase tracking-widest text-emerald-400 flex items-center justify-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                  Listening continuously...
+                  Listening...
                 </p>
               </motion.div>
             ) : (
@@ -667,7 +667,7 @@ export const LiveVoiceInterface: React.FC<LiveVoiceInterfaceProps> = ({
               >
                 <p className="text-zinc-300 text-xs sm:text-sm font-light tracking-wide flex items-center justify-center gap-2">
                   <Mic className={`w-3.5 h-3.5 ${activePersona === 'rose' ? 'text-pink-400' : 'text-cyan-400'} animate-pulse`} />
-                  Autonomous Mic Always Active • Speak anytime
+                  Listening • Speak anytime
                 </p>
                 <p className="text-[10px] font-mono text-zinc-500">
                   {activePersona === 'rose' ? 'Rose Neural Listening Grid Online' : 'Jarvis Neural Listening Grid Online'}
@@ -678,17 +678,8 @@ export const LiveVoiceInterface: React.FC<LiveVoiceInterfaceProps> = ({
         </div>
       </main>
 
-      {/* Bottom Floating Controls: Permanent Autonomous Neural Mic Indicator + Floating Icon-Only Screen Share */}
-      <footer className="w-full px-6 pb-6 pt-2 z-30 flex items-center justify-between">
-        {/* Left: Always-On Autonomous Neural Mic Status (Permanent, non-toggleable) */}
-        <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-emerald-500/40 bg-emerald-950/40 text-emerald-300 text-xs font-mono font-medium backdrop-blur-md shadow-[0_0_15px_rgba(16,185,129,0.25)]">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-          <span className="tracking-wider">MIC ALWAYS ON</span>
-        </div>
-
+      {/* Bottom Floating Controls: Floating Icon-Only Screen Share */}
+      <footer className="w-full px-6 pb-6 pt-2 z-30 flex items-center justify-end">
         {/* Right: Floating Screen Share Icon-Only Button + Mini Screen PIP Card */}
         <div className="flex items-center gap-3">
           {/* If screen sharing is active, show small live preview card */}

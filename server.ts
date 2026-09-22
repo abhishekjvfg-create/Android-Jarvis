@@ -4,6 +4,12 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Modality, Type } from '@google/genai';
 import dotenv from 'dotenv';
 import { getAstraAutomotiveStudioHtml } from './server/astraAutomotiveStudio.ts';
+import { 
+  createIronMan3DModelHtml, 
+  createProcedural3DModelHtml, 
+  createProceduralGameHtml, 
+  createProceduralWebHtml 
+} from './src/services/projectGenerator.ts';
 
 dotenv.config();
 
@@ -1890,6 +1896,141 @@ function pcmToWavBase64(pcmBase64: string, sampleRate = 24000): string {
     downloaded: boolean;
     createdAt: number;
   }>();
+
+  // Autonomous Project Generator endpoint (for 3D models, games, websites, apps)
+  app.post('/api/generate-project', express.json({ limit: '10mb' }), async (req, res) => {
+    try {
+      const { prompt, type, title, persona } = req.body;
+      const userPrompt = (prompt || '').trim();
+      const userPromptLower = userPrompt.toLowerCase();
+      const projectType = type || '3d_model';
+      const cleanTitle = title || 'Jarvis Autonomous Project';
+
+      console.log(`[PROJECT GENERATOR] Generating project: type=${projectType}, title="${cleanTitle}", prompt="${userPrompt}"`);
+
+      // 1. Check if user explicitly asked for Iron Man Mark 85
+      const isIronMan = /iron\s*man|ironman|mark\s*85|tony\s*stark/i.test(userPromptLower) &&
+        !userPromptLower.includes('spider') && !userPromptLower.includes('batman') && !userPromptLower.includes('superman');
+      
+      let generatedHtml = '';
+
+      if (isIronMan) {
+        console.log(`[PROJECT GENERATOR] Explicit Iron Man request detected.`);
+        generatedHtml = createIronMan3DModelHtml(cleanTitle);
+      } else if (projectType === '3d_model' && (userPromptLower.includes('car') || userPromptLower.includes('bmw') || userPromptLower.includes('audi') || userPromptLower.includes('porsche') || userPromptLower.includes('ferrari') || userPromptLower.includes('supercar'))) {
+        const brand = userPromptLower.includes('porsche') ? 'PORSCHE' : (userPromptLower.includes('audi') ? 'AUDI' : (userPromptLower.includes('ferrari') ? 'FERRARI' : 'BMW'));
+        console.log(`[PROJECT GENERATOR] Automotive Studio request for brand: ${brand}`);
+        generatedHtml = getAstraAutomotiveStudioHtml(brand, "Interactive 3D Automotive Studio");
+      } else {
+        // Try Gemini generation with a 6-second timeout race
+        try {
+          const geminiKeys = getGeminiApiKeys();
+          const activeKey = geminiKeys[0];
+          
+          if (activeKey && activeKey !== 'AIzaSy_placeholder') {
+            const ai = new GoogleGenAI({ apiKey: activeKey });
+            
+            const systemPrompt = `You are the Lead Code Architect for JARVIS / ROSE Autonomous Engineering Systems.
+The user requested a complete, working, single-file HTML5 application for: "${userPrompt}".
+Category: ${projectType} (Title: "${cleanTitle}").
+
+CRITICAL ARCHITECTURAL REQUIREMENTS:
+1. OUTPUT FORMAT: Output ONLY the complete, raw standalone HTML code starting with <!DOCTYPE html> and ending with </html>. Do NOT include markdown code blocks, backticks, or any conversational preamble/explanation.
+2. STANDALONE & SELF-CONTAINED: All CSS and JS must be embedded within the HTML file in <style> and <script> tags. Use CDN libraries:
+   - For 3D: Use https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js and OrbitControls.
+   - For UI/Web: Use <script src="https://cdn.tailwindcss.com"></script>.
+3. INTERACTIVITY:
+   - If 3D Model: Include Three.js WebGL canvas with OrbitControls (touch/mouse drag rotate, pinch/scroll zoom), dynamic lighting, smooth animation, and HUD header with title and download button.
+   - If Game: Include a fully playable game loop (Canvas or DOM), touch controls/on-screen buttons for mobile + keyboard arrows for desktop, score counter, game over state, and restart functionality.
+   - If Website/App: Include a sleek modern dark theme UI with functional interactive buttons, inputs, responsive layout for both mobile and desktop.
+4. DOWNLOAD BUTTON MANDATE:
+   Include a prominent button with id="btn-download" that downloads the HTML file locally and calls:
+   const pid = window.location.pathname.split('/').pop(); if(pid) fetch('/api/projects/' + pid + '/downloaded', { method: 'POST' }).catch(()=>{});
+5. Flawless execution with zero missing dependencies.`;
+
+            const aiPromise = ai.models.generateContent({
+              model: 'gemini-3.1-flash-lite',
+              contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+              config: {
+                temperature: 0.2,
+                maxOutputTokens: 8192
+              }
+            });
+
+            // 6-second timeout race
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini timeout")), 6500));
+            const aiRes: any = await Promise.race([aiPromise, timeoutPromise]);
+            
+            const rawText = aiRes?.text || '';
+            if (rawText) {
+              const htmlMatch = rawText.match(/<!DOCTYPE\s+html[\s\S]*<\/html>/i) || rawText.match(/<html[\s\S]*<\/html>/i);
+              if (htmlMatch) {
+                generatedHtml = htmlMatch[0];
+                if (!generatedHtml.startsWith('<!DOCTYPE html>')) {
+                  generatedHtml = '<!DOCTYPE html>\n' + generatedHtml;
+                }
+                console.log(`[PROJECT GENERATOR] Gemini successfully generated custom project (${generatedHtml.length} chars)`);
+              }
+            }
+          }
+        } catch (aiErr: any) {
+          console.warn(`[PROJECT GENERATOR] Gemini generation timed out or failed (${aiErr.message}), falling back to procedural generator.`);
+        }
+
+        // If Gemini didn't produce HTML, fall back immediately to high quality procedural generator
+        if (!generatedHtml || generatedHtml.length < 200) {
+          console.log(`[PROJECT GENERATOR] Using procedural generator for "${userPrompt}" (${projectType})`);
+          if (projectType === 'game') {
+            generatedHtml = createProceduralGameHtml(userPrompt, cleanTitle);
+          } else if (projectType === 'website' || projectType === 'app') {
+            generatedHtml = createProceduralWebHtml(userPrompt, cleanTitle);
+          } else {
+            generatedHtml = createProcedural3DModelHtml(userPrompt, cleanTitle);
+          }
+        }
+      }
+
+      // Store in project vault
+      const id = `proj_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      backgroundProjectsVault.set(id, {
+        id,
+        title: cleanTitle,
+        type: projectType,
+        html: generatedHtml,
+        downloaded: false,
+        createdAt: Date.now()
+      });
+
+      console.log(`[PROJECT GENERATOR] Project ready: ${id} -> /project/${id}`);
+
+      res.json({
+        success: true,
+        id,
+        projectUrl: `/project/${id}`,
+        title: cleanTitle,
+        type: projectType
+      });
+    } catch (err: any) {
+      console.error("[PROJECT GENERATOR ERROR]:", err);
+      const fallbackHtml = createProcedural3DModelHtml("Autonomous 3D Model", "3D Interactive Project");
+      const fallbackId = `proj_${Date.now()}_fallback`;
+      backgroundProjectsVault.set(fallbackId, {
+        id: fallbackId,
+        title: "3D Interactive Project",
+        type: "3d_model",
+        html: fallbackHtml,
+        downloaded: false,
+        createdAt: Date.now()
+      });
+      res.json({
+        success: true,
+        id: fallbackId,
+        projectUrl: `/project/${fallbackId}`,
+        title: "3D Interactive Project",
+        type: "3d_model"
+      });
+    }
+  });
 
   // Create/Save a generated background project
   app.post('/api/projects', express.json({ limit: '25mb' }), (req, res) => {

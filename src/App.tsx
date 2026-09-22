@@ -541,7 +541,14 @@ export default function App() {
   const isSpeakingRef = useRef<boolean>(false);
   const resumeBackgroundListeningRef = useRef<(() => void) | null>(null);
   const backgroundVoiceTurnIdRef = useRef<number>(0);
+  const currentProcessingTurnIdRef = useRef<number>(0);
   const lastYouTubeQueryRef = useRef<string>('');
+  const isThinkingRef = useRef<boolean>(false);
+  const lastSpokenSubmissionRef = useRef<{ text: string; time: number }>({ text: '', time: 0 });
+
+  useEffect(() => {
+    isThinkingRef.current = isThinking;
+  }, [isThinking]);
 
   // Background Project Creation State & Active Undownloaded Project Ref
   const [buildingProjectTask, setBuildingProjectTask] = useState<string | null>(null);
@@ -1211,29 +1218,43 @@ export default function App() {
     return (saved === 'rose' || saved === 'jarvis') ? saved : 'jarvis';
   });
 
-  // Automatic Purge of Undownloaded Projects when user returns to Jarvis app
+  // Automatic Purge of Undownloaded Projects and Instant Mic Resume when user returns to Jarvis app
   useEffect(() => {
     const handleReturnToJarvis = async () => {
-      if (document.visibilityState === 'visible' && isBackgroundSystemActiveRef.current && activeBackgroundProjectRef.current) {
-        const proj = activeBackgroundProjectRef.current;
-        // If user returned after viewing project without downloading it
-        if (Date.now() - proj.openedAt > 2000) {
-          try {
-            const res = await fetch(`/api/projects/${proj.id}/status`);
-            const status = await res.json();
-            if (status.exists && !status.downloaded) {
-              // Purge project permanently from memory
-              await fetch(`/api/projects/${proj.id}`, { method: 'DELETE' });
-              activeBackgroundProjectRef.current = null;
+      if (document.visibilityState === 'visible' && isBackgroundSystemActiveRef.current) {
+        // Auto-resume audio keep-alive and screen wakeLock if available
+        if (backgroundAudioRef.current) {
+          backgroundAudioRef.current.play().catch(() => {});
+        }
+        if ('wakeLock' in navigator && (navigator as any).wakeLock?.request) {
+          (navigator as any).wakeLock.request('screen').catch(() => {});
+        }
+        // Auto-rearm speech recognition immediately on mobile browser return
+        if (resumeBackgroundListeningRef.current) {
+          resumeBackgroundListeningRef.current();
+        }
 
-              const purgeNotice = activePersona === 'rose'
-                ? "Boss, aapne project download nahi kiya, isliye purana project clear ho gaya hai. Aap naya project ya usi ko dobara banane ko bol sakte hain!"
-                : "Project session closed without download, Sir. Project memory purged. You can request a new build or rebuild anytime.";
+        if (activeBackgroundProjectRef.current) {
+          const proj = activeBackgroundProjectRef.current;
+          // If user returned after viewing project without downloading it
+          if (Date.now() - proj.openedAt > 2000) {
+            try {
+              const res = await fetch(`/api/projects/${proj.id}/status`);
+              const status = await res.json();
+              if (status.exists && !status.downloaded) {
+                // Purge project permanently from memory
+                await fetch(`/api/projects/${proj.id}`, { method: 'DELETE' });
+                activeBackgroundProjectRef.current = null;
 
-              setSystemAlert("PROJECT PURGED (SESSION CLOSED WITHOUT DOWNLOAD)");
-              speakRealVoiceBackground(purgeNotice, activePersona);
-            }
-          } catch (e) {}
+                const purgeNotice = activePersona === 'rose'
+                  ? "Boss, aapne project download nahi kiya, isliye purana project clear ho gaya hai. Aap naya project ya usi ko dobara banane ko bol sakte hain!"
+                  : "Project session closed without download, Sir. Project memory purged. You can request a new build or rebuild anytime.";
+
+                setSystemAlert("PROJECT PURGED (SESSION CLOSED WITHOUT DOWNLOAD)");
+                speakRealVoiceBackground(purgeNotice, activePersona);
+              }
+            } catch (e) {}
+          }
         }
       }
     };
@@ -1343,7 +1364,7 @@ export default function App() {
       return;
     }
 
-    if (turnId !== undefined && backgroundVoiceTurnIdRef.current !== turnId) {
+    if (turnId !== undefined && currentProcessingTurnIdRef.current !== turnId) {
       return;
     }
 
@@ -1358,7 +1379,7 @@ export default function App() {
       const ttsRes: any = await Promise.race([ttsPromise, timeoutPromise]);
 
       // If user turned off background system or initiated another command while waiting, discard completely
-      if (!isBackgroundSystemActiveRef.current || (turnId !== undefined && backgroundVoiceTurnIdRef.current !== turnId)) {
+      if (!isBackgroundSystemActiveRef.current || (turnId !== undefined && currentProcessingTurnIdRef.current !== turnId)) {
         setIsSpeaking(false);
         isSpeakingRef.current = false;
         return;
@@ -1389,12 +1410,12 @@ export default function App() {
 
         audio.onerror = () => {
           URL.revokeObjectURL(url);
-          if (isBackgroundSystemActiveRef.current && (turnId === undefined || backgroundVoiceTurnIdRef.current === turnId)) {
+          if (isBackgroundSystemActiveRef.current && (turnId === undefined || currentProcessingTurnIdRef.current === turnId)) {
             speakInstantBrowserFallback(clean, undefined, persona, onDone);
           }
         };
 
-        if (!isBackgroundSystemActiveRef.current || (turnId !== undefined && backgroundVoiceTurnIdRef.current !== turnId)) {
+        if (!isBackgroundSystemActiveRef.current || (turnId !== undefined && currentProcessingTurnIdRef.current !== turnId)) {
           URL.revokeObjectURL(url);
           return;
         }
@@ -1406,7 +1427,7 @@ export default function App() {
       // Fall through to browser fallback only if background system is still active
     }
 
-    if (isBackgroundSystemActiveRef.current && (turnId === undefined || backgroundVoiceTurnIdRef.current === turnId)) {
+    if (isBackgroundSystemActiveRef.current && (turnId === undefined || currentProcessingTurnIdRef.current === turnId)) {
       speakInstantBrowserFallback(clean, undefined, persona, onDone);
     } else {
       setIsSpeaking(false);
@@ -1432,6 +1453,7 @@ export default function App() {
 
       setLiveUserTranscript('');
       const startTurnId = ++backgroundVoiceTurnIdRef.current;
+      currentProcessingTurnIdRef.current = startTurnId;
       // Clean, immediate voice greeting without electronic beeps
       const greeting = activePersona === 'rose'
         ? "Hello Boss! Main Rose hoon, Live system active hai. Bataiye main aapki kya madad karoon?"
@@ -1445,6 +1467,7 @@ export default function App() {
     } else {
       // 🛑 INSTANT SHUTDOWN: Invalidate turnId and kill all audio immediately to prevent audio leakage
       backgroundVoiceTurnIdRef.current++;
+      currentProcessingTurnIdRef.current++;
       isBackgroundSystemActiveRef.current = false;
       isSpeakingRef.current = false;
       setIsSpeaking(false);
@@ -3745,6 +3768,37 @@ export default function App() {
     return converted.replace(/\s+/g, ' ').trim();
   };
 
+  // Post-process speech recognition transcripts to fix common phonetic mishearings (e.g. "darling" -> "jarvis")
+  const sanitizeJarvisSpeech = (text: string): string => {
+    if (!text) return '';
+    let cleaned = convertDevanagariToHinglish(text).trim();
+
+    // Fix common Android Chrome STT mishearings of "Jarvis" / "Rose"
+    // In Hindi / Indian English accents, speech-to-text frequently recognizes "hello jarvis" as "hi darling", "hello darling", "darling", "service", etc.
+    cleaned = cleaned
+      // 1. "hi darling" / "hello darling" / "hey darling" / "ok darling" -> "$1 jarvis"
+      .replace(/\b(hi|hello|hey|yo|namaste|ok|okay|suno|arre|are|sun|bol)\s+(darling|darlin|darlinge|darlen|service|sarvis|java|charge|dargah|dialog)\b/gi, '$1 jarvis')
+      // 2. "darling hello" / "darling suno" / "darling kaise ho"
+      .replace(/\b(darling|darlin|darlinge|darlen)\s+(hello|hi|hey|suno|kaise|kya|batao|kaho)\b/gi, 'jarvis $2')
+      // 3. Standalone "darling" or "darlin" -> "jarvis"
+      .replace(/^darling\b/gi, 'jarvis')
+      .replace(/\bdarling$/gi, 'jarvis')
+      // 4. "suno darling" / "boliye darling" -> "suno jarvis"
+      .replace(/\b(suno|boliye|bolo|batao|kaho)\s+(darling|darlin)\b/gi, '$1 jarvis')
+      // 5. Common mishearings of "jarvis": charwis, jarwis, jervis, jorvis, zarvis, zervis, jharvis, jar wash, jar wish
+      .replace(/\b(charwis|jarwis|jervis|jorvis|zarvis|zervis|jharvis|jar\s*wash|jar\s*wish)\b/gi, 'jarvis')
+      // 6. "service" or "java" as assistant name: "hello service" -> "hello jarvis"
+      .replace(/\b(hi|hello|hey|ok|okay)\s+service\b/gi, '$1 jarvis')
+      .replace(/\b(hi|hello|hey)\s+java\b/gi, '$1 jarvis')
+      // 7. "rose" mishearings:
+      .replace(/\b(roze|roz|rosy|roji)\b/gi, 'rose')
+      // Clean up whitespace
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return cleaned;
+  };
+
   // Speech Recognition Setup - Manual Click-to-Speak with Instant Barge-In
   const startListening = () => {
     // Instant Barge-In: If Jarvis or Rose is currently speaking, immediately interrupt & stop
@@ -3770,6 +3824,9 @@ export default function App() {
       recognition.continuous = false;
       recognition.interimResults = true;
 
+      let silenceTimer: any = null;
+      let hasSubmitted = false;
+
       recognition.onstart = () => {
         setIsListening(true);
         isListeningRef.current = true;
@@ -3778,30 +3835,60 @@ export default function App() {
       recognition.onend = () => {
         setIsListening(false);
         isListeningRef.current = false;
+        if (silenceTimer) clearTimeout(silenceTimer);
+        // If not yet submitted and user spoke a command, submit exactly once
+        if (!hasSubmitted && input.trim().length >= 2 && !isThinkingRef.current) {
+          hasSubmitted = true;
+          const cleanVal = sanitizeJarvisSpeech(input).trim();
+          if (cleanVal.length >= 2) {
+            handleSend(cleanVal);
+          }
+        }
       };
 
       recognition.onerror = (err: any) => {
         setIsListening(false);
         isListeningRef.current = false;
+        if (silenceTimer) clearTimeout(silenceTimer);
       };
 
       recognition.onresult = (event: any) => {
         // Stop any audio immediately on speech detection
         stopAudio();
 
-        const results = event.results;
-        const lastIndex = results.length - 1;
-        const rawTranscript = results[lastIndex][0].transcript;
-        const hinglishTranscript = convertDevanagariToHinglish(rawTranscript);
-        
-        setInput(hinglishTranscript);
-
-        if (results[lastIndex].isFinal) {
-          const cleanVal = hinglishTranscript.trim();
-          if (cleanVal.length > 0) {
-            handleSend(cleanVal);
+        let interim = '';
+        let final = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const t = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            final += t + ' ';
+          } else {
+            interim += t;
           }
         }
+
+        const combinedRaw = (final || interim || '').trim();
+        const cleanedLive = sanitizeJarvisSpeech(combinedRaw);
+        if (cleanedLive) {
+          setInput(cleanedLive);
+        }
+
+        const hasFinal = Array.from(event.results).some((r: any) => r.isFinal);
+
+        if (silenceTimer) clearTimeout(silenceTimer);
+
+        // Wait for natural sentence completion before submitting exactly once
+        silenceTimer = setTimeout(() => {
+          if (hasSubmitted || isThinkingRef.current) return;
+          const toSubmit = sanitizeJarvisSpeech(combinedRaw).trim();
+          if (toSubmit.length >= 2) {
+            hasSubmitted = true;
+            try { recognition.abort(); } catch (e) {}
+            setIsListening(false);
+            isListeningRef.current = false;
+            handleSend(toSubmit);
+          }
+        }, hasFinal ? 700 : 1200);
       };
 
       recognition.start();
@@ -3812,8 +3899,15 @@ export default function App() {
 
   // --- CHATGPT-STYLE LIVE VOICE CONVERSATION ENGINE ---
   const processLiveVoiceSubmission = async (spokenText: string) => {
-    const cleanText = convertDevanagariToHinglish(spokenText).trim();
+    const cleanText = sanitizeJarvisSpeech(spokenText).trim();
     if (!cleanText || !liveModeActiveRef.current) return;
+    if (cleanText.length < 2) return;
+
+    // Concurrency guard: Do not submit if already thinking or processing
+    if (isThinkingRef.current) {
+      console.warn("Ignored live voice submission because AI is already processing:", cleanText);
+      return;
+    }
 
     // Immediately stop ongoing audio or synthesis (< 0.05s)
     stopAudio();
@@ -3828,13 +3922,18 @@ export default function App() {
       try { window.speechSynthesis.cancel(); } catch (e) {}
     }
 
+    // Temporarily abort live speech recognition so mic doesn't capture background noise or echo while AI is thinking
+    if (liveSpeechRecognitionRef.current) {
+      try { liveSpeechRecognitionRef.current.abort(); } catch (e) {}
+    }
+
     // Increment turn so any previous in-flight synthesis is cancelled
     liveVoiceTurnIdRef.current++;
 
     setLiveVoiceStatus('thinking');
     setLiveTranscript(cleanText);
 
-    // Call handleSend directly; continuous recognition remains alive in background for barge-in
+    // Call handleSend directly
     await handleSend(cleanText);
   };
 
@@ -3909,6 +4008,10 @@ export default function App() {
 
         if (liveVoiceTurnIdRef.current === myTurnId && liveModeActiveRef.current) {
           setLiveVoiceStatus('speaking');
+          // Abort recognition while speaker is active to prevent mic from hearing the device's own speaker
+          if (liveSpeechRecognitionRef.current) {
+            try { liveSpeechRecognitionRef.current.abort(); } catch (e) {}
+          }
           await audio.play();
           audioPlayed = true;
         }
@@ -3957,6 +4060,10 @@ export default function App() {
       };
 
       setLiveVoiceStatus('speaking');
+      // Abort recognition during speech synthesis to prevent mic from hearing browser audio
+      if (liveSpeechRecognitionRef.current) {
+        try { liveSpeechRecognitionRef.current.abort(); } catch (e) {}
+      }
       window.speechSynthesis.speak(utterance);
     } else {
       onLiveAudioPlaybackEnded();
@@ -3967,7 +4074,12 @@ export default function App() {
     if (!liveModeActiveRef.current) return;
     setLiveVoiceStatus('listening');
     setLiveTranscript('');
-    restartLiveSpeechRecognition();
+    // 350ms delay for echo to clear from the room before restarting mic
+    setTimeout(() => {
+      if (liveModeActiveRef.current && !liveMicMutedRef.current && liveStatusRef.current !== 'speaking') {
+        restartLiveSpeechRecognition();
+      }
+    }, 350);
   };
 
   const startLiveSpeechRecognition = () => {
@@ -4001,8 +4113,12 @@ export default function App() {
         return;
       }
 
-      // INSTANT BARGE-IN (<0.05s interruption)
-      // If model is speaking or audio is playing, immediately kill playback and cut speech
+      // If already thinking or speaking, do NOT process speech results
+      if (liveStatusRef.current === 'thinking' || isThinkingRef.current) {
+        return;
+      }
+
+      // If model is speaking or audio is playing, allow user to tap or deliberately interrupt
       if (liveStatusRef.current === 'speaking' || isSpeaking || liveAudioElementRef.current || (typeof window !== 'undefined' && window.speechSynthesis?.speaking)) {
         liveVoiceTurnIdRef.current++;
         stopAudio();
@@ -4018,10 +4134,6 @@ export default function App() {
         }
         setLiveVoiceStatus('listening');
         setLiveJarvisReply('');
-      } else if (liveStatusRef.current === 'thinking') {
-        // User spoke while Jarvis was thinking -> cancel old turn immediately
-        liveVoiceTurnIdRef.current++;
-        setLiveVoiceStatus('listening');
       }
 
       let interimStr = '';
@@ -4037,23 +4149,26 @@ export default function App() {
       }
 
       const rawLiveStr = (finalStr || interimStr || accumulatedText).trim();
-      const currentLiveStr = convertDevanagariToHinglish(rawLiveStr);
+      const currentLiveStr = sanitizeJarvisSpeech(rawLiveStr);
       if (currentLiveStr) {
         setLiveTranscript(currentLiveStr);
         accumulatedText = currentLiveStr;
 
         if (speechTimer) clearTimeout(speechTimer);
 
-        // If final sentence boundary reached, submit immediately; else short 260ms debounce
+        // Natural conversational pause detection:
+        // Wait 800ms when isFinal is received, or 1300ms on interim results
         const isFinal = Boolean(finalStr && finalStr.trim().length > 0);
-        const debounceDelay = isFinal ? 40 : 260;
+        const debounceDelay = isFinal ? 800 : 1300;
 
         speechTimer = setTimeout(() => {
-          if (accumulatedText && liveModeActiveRef.current && !liveMicMutedRef.current) {
-            const toSubmit = accumulatedText;
+          if (accumulatedText && liveModeActiveRef.current && !liveMicMutedRef.current && !isThinkingRef.current) {
+            const toSubmit = sanitizeJarvisSpeech(accumulatedText).trim();
             accumulatedText = '';
             setLiveTranscript('');
-            processLiveVoiceSubmission(toSubmit);
+            if (toSubmit.length >= 2) {
+              processLiveVoiceSubmission(toSubmit);
+            }
           }
         }, debounceDelay);
       }
@@ -4061,9 +4176,9 @@ export default function App() {
 
     recognition.onend = () => {
       // Continuous hands-free loop: Always restart recognition while live mode is active
-      if (liveModeActiveRef.current && !liveMicMutedRef.current) {
+      if (liveModeActiveRef.current && !liveMicMutedRef.current && liveStatusRef.current === 'listening') {
         setTimeout(() => {
-          if (liveModeActiveRef.current && !liveMicMutedRef.current) {
+          if (liveModeActiveRef.current && !liveMicMutedRef.current && liveStatusRef.current === 'listening') {
             try { recognition.start(); } catch (e) {}
           }
         }, 100);
@@ -4074,9 +4189,9 @@ export default function App() {
       if (err?.error !== 'no-speech' && err?.error !== 'aborted') {
         console.warn("Live Speech notice:", err?.error || err);
       }
-      if (liveModeActiveRef.current && !liveMicMutedRef.current) {
+      if (liveModeActiveRef.current && !liveMicMutedRef.current && liveStatusRef.current === 'listening') {
         setTimeout(() => {
-          if (liveModeActiveRef.current && !liveMicMutedRef.current) {
+          if (liveModeActiveRef.current && !liveMicMutedRef.current && liveStatusRef.current === 'listening') {
             try { recognition.start(); } catch (e) {}
           }
         }, 150);
@@ -4299,8 +4414,29 @@ export default function App() {
     stopAudio();
     backgroundVoiceTurnIdRef.current++;
 
-    let messageToSend = (overrideInput || input).trim();
+    let messageToSend = sanitizeJarvisSpeech(overrideInput || input).trim();
     if (!messageToSend && attachedFiles.length === 0) return;
+
+    // Deduplication & concurrency guard:
+    // If input comes from voice, drop duplicate or fragmented events within 3000ms
+    const now = Date.now();
+    const isVoiceInput = Boolean(overrideInput);
+    if (isVoiceInput) {
+      const prev = lastSpokenSubmissionRef.current;
+      const lowerCur = messageToSend.toLowerCase();
+      const lowerPrev = (prev.text || '').toLowerCase();
+      // Drop if exact duplicate or one is substring of the other within 3000ms
+      if (now - prev.time < 3000 && (lowerCur === lowerPrev || lowerPrev.includes(lowerCur) || lowerCur.includes(lowerPrev))) {
+        console.warn("Dropped duplicate voice event:", messageToSend);
+        return;
+      }
+      // Drop if already thinking/responding
+      if (isThinkingRef.current) {
+        console.warn("Dropped concurrent voice event because AI is thinking:", messageToSend);
+        return;
+      }
+      lastSpokenSubmissionRef.current = { text: messageToSend, time: now };
+    }
 
     // Direct Voice/Speech Abort or Interruption Command
     const lowerTrimmed = messageToSend.toLowerCase();
@@ -4436,6 +4572,7 @@ export default function App() {
       }
     });
     
+    isThinkingRef.current = true;
     setIsThinking(true);
 
     try {
@@ -5257,6 +5394,7 @@ export default function App() {
         setSystemAlert("Neural Link Notice: " + (error.message || "Failed to sync."));
       }
     } finally {
+      isThinkingRef.current = false;
       setIsThinking(false);
     }
   };
@@ -5640,28 +5778,70 @@ export default function App() {
       }
     }
 
-    // 🎨 DIRECT BACKGROUND CREATION SYSTEM (3D Models, Images, Web Projects)
-    // User instruction: "jab ham background system me Jarvis ko kuch banane ke liye bola tab chat me yo chiz nahi dikhna chahiye balki Jarvis ko jo chiz banane ke liye bola ha Jarvis direct background system me hi usse banayega aur jab yo ban jayega tab Jarvis bolega project completed sir fir yo us project ko browser me open karega jaisa 3d model ho gaya aur images ho gya"
+    // 🎨 DIRECT BACKGROUND CREATION SYSTEM (3D Models, Images, Web Projects, Games)
+    // User instruction: Never force Iron Man 3D model unless user specifically asks for Iron Man.
+    // Accurately generate the exact 3D model, game, website, or app requested even if taking 5-8 seconds.
+    const isIronMan = /iron\s*man|ironman|mark\s*85|tony\s*stark/i.test(cmdLower) &&
+      !cmdLower.includes('spider') && !cmdLower.includes('batman') && !cmdLower.includes('superman');
+
     const is3DModelCmd = 
-      (/3d\s*model|3d|three\.?js|model/i.test(cmdLower) && /banao|banaiye|make|create|generate|build|render|chahiye|de/i.test(cmdLower)) ||
-      cmdLower.includes('3d model') || cmdLower.includes('model banao') ||
-      (cmdLower.includes('iron man') && (cmdLower.includes('banao') || cmdLower.includes('make') || cmdLower.includes('model') || cmdLower.includes('3d')));
+      !isIronMan && (
+        (/3d|three\.?js|model|hologram|mesh|cad/i.test(cmdLower) && /banao|banaiye|make|create|generate|build|render|chahiye|de|dikhao/i.test(cmdLower)) ||
+        cmdLower.includes('3d model') || cmdLower.includes('model banao') || /3d.*banao/i.test(cmdLower) || /model.*banao/i.test(cmdLower)
+      );
+
+    const isGameCmd = 
+      (/game|khel|khelo|arcade/i.test(cmdLower) && /banao|banaiye|create|make|build|chahiye|de/i.test(cmdLower)) ||
+      /snake game|space shooter|tic tac toe|flappy|brick breaker|racing game|pong game/i.test(cmdLower);
+
+    const isWebProjectCmd = 
+      !isGameCmd && (
+        (/website|webpage|web app|landing page|portfolio|calculator|weather app|todo|site\b/i.test(cmdLower) && /banao|banaiye|create|make|build|chahiye|de/i.test(cmdLower)) ||
+        /website banao|app banao|calculator banao|page banao/i.test(cmdLower)
+      );
 
     const isImageGenCmd = 
       /image|photo|picture|wallpaper|tasveer/i.test(cmdLower) && /banao|banaiye|generate|create|draw|kheencho|dikhao/i.test(cmdLower);
 
-    const isWebProjectCmd = 
-      /website|webpage|calculator|game|html|web project|landing page/i.test(cmdLower) && /banao|banaiye|create|make|build/i.test(cmdLower);
+    if (isIronMan || is3DModelCmd || isGameCmd || isWebProjectCmd || isImageGenCmd) {
+      let taskTitle = '';
+      let projType: '3d_model' | 'game' | 'website' | 'image' = '3d_model';
 
-    if (is3DModelCmd || isImageGenCmd || isWebProjectCmd) {
-      const isIronMan = cmdLower.includes('iron man') || cmdLower.includes('ironman') || cmdLower.includes('stark') || (!cmdLower.includes('car') && !cmdLower.includes('bike') && is3DModelCmd);
-      let taskTitle = 'Iron Man Mark 85 3D Model';
-      if (is3DModelCmd) {
-        taskTitle = isIronMan ? 'Iron Man Mark 85 3D Model' : `${cmd.replace(/3d|model|banao|banaiye|make|create|ek/gi, '').trim() || 'Interactive'} 3D Model`;
+      if (isIronMan) {
+        projType = '3d_model';
+        taskTitle = 'Iron Man Mark 85 3D Model';
+      } else if (is3DModelCmd) {
+        projType = '3d_model';
+        const cleanSub = cmd
+          .replace(/jarvis|rose|sir|boss|please|kripya/gi, '')
+          .replace(/3d\s*model|3d|three\.?js|model|hologram/gi, '')
+          .replace(/banao|banaiye|bana|de|do|chahiye|make|create|generate|build|render|ek|ka|ki|ke/gi, '')
+          .trim();
+        taskTitle = cleanSub ? `${cleanSub.charAt(0).toUpperCase() + cleanSub.slice(1)} 3D Model` : 'Interactive 3D Model';
+      } else if (isGameCmd) {
+        projType = 'game';
+        const cleanGame = cmd
+          .replace(/jarvis|rose|sir|boss|please|kripya/gi, '')
+          .replace(/game|khel|khelo|arcade/gi, '')
+          .replace(/banao|banaiye|bana|de|do|chahiye|make|create|build|ek|ka|ki|ke/gi, '')
+          .trim();
+        taskTitle = cleanGame ? `${cleanGame.charAt(0).toUpperCase() + cleanGame.slice(1)} Game` : 'Interactive Arcade Game';
+      } else if (isWebProjectCmd) {
+        projType = 'website';
+        const cleanWeb = cmd
+          .replace(/jarvis|rose|sir|boss|please|kripya/gi, '')
+          .replace(/website|webpage|web app|landing page|app|page|site/gi, '')
+          .replace(/banao|banaiye|bana|de|do|chahiye|make|create|build|ek|ka|ki|ke/gi, '')
+          .trim();
+        taskTitle = cleanWeb ? `${cleanWeb.charAt(0).toUpperCase() + cleanWeb.slice(1)} Application` : 'Interactive Web Application';
       } else if (isImageGenCmd) {
-        taskTitle = `AI Image: ${cmd.replace(/image|photo|banao|banaiye|generate|create|ek/gi, '').trim() || 'Visual'}`;
-      } else {
-        taskTitle = `Web Project: ${cmd.replace(/website|game|app|project|banao|create/gi, '').trim() || 'Application'}`;
+        projType = 'image';
+        const cleanImg = cmd
+          .replace(/jarvis|rose|sir|boss|please|kripya/gi, '')
+          .replace(/image|photo|picture|wallpaper|tasveer/gi, '')
+          .replace(/banao|banaiye|bana|generate|create|draw|kheencho|dikhao|ek|ka|ki|ke/gi, '')
+          .trim();
+        taskTitle = cleanImg ? `AI Image: ${cleanImg}` : 'AI Generated Artwork';
       }
 
       setBuildingProjectTask(taskTitle);
@@ -5676,42 +5856,48 @@ export default function App() {
       speakRealVoiceBackground(startVoiceText, activePersona, undefined, turnId);
 
       try {
-        let generatedHtml = '';
-        let projType: '3d_model' | 'image' | 'web' = '3d_model';
+        let projId = '';
+        let projectUrl = '';
 
-        if (isIronMan) {
-          projType = '3d_model';
-          generatedHtml = createIronMan3DModelHtml('Iron Man Mark 85 3D Model');
-        } else if (is3DModelCmd) {
-          projType = '3d_model';
-          generatedHtml = createCustom3DModelHtml(taskTitle, taskTitle);
-        } else if (isImageGenCmd) {
-          projType = 'image';
+        if (projType === 'image') {
           const imgPrompt = cmd.replace(/image|photo|banao|generate|create|jarvis|rose|ek/gi, '').trim() || 'futuristic scifi masterpiece';
           const imgUrl = await generateImage(imgPrompt, activePersona);
           const finalImg = imgUrl || '/ironman.png';
-          generatedHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>${taskTitle}</title><style>*{box-sizing:border-box;margin:0;padding:0;}body{background:#060810;color:#e0f2fe;font-family:system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center;}h1{font-size:24px;margin-bottom:16px;color:#38bdf8;letter-spacing:1px;}.img-box{max-width:90vw;max-height:75vh;border-radius:16px;overflow:hidden;border:1px solid rgba(56,189,248,0.3);box-shadow:0 0 50px rgba(56,189,248,0.25);margin-bottom:20px;}img{width:100%;height:100%;object-fit:contain;display:block;}.dl-btn{background:linear-gradient(135deg,#0284c7,#06b6d4);color:#fff;border:none;padding:14px 32px;font-size:15px;font-weight:700;border-radius:999px;cursor:pointer;box-shadow:0 0 20px rgba(6,182,212,0.4);transition:transform .15s;}.dl-btn:active{transform:scale(0.96);}</style></head><body><h1>${taskTitle}</h1><div class="img-box"><img src="${finalImg}" alt="${taskTitle}"/></div><button id="dlBtn" class="dl-btn">⬇️ DOWNLOAD IMAGE</button><script>const projId=window.location.pathname.split('/').pop();document.getElementById('dlBtn').addEventListener('click',()=>{fetch('/api/projects/'+projId+'/downloaded',{method:'POST'}).catch(()=>{});const a=document.createElement('a');a.href='${finalImg}';a.download='${taskTitle.toLowerCase().replace(/[^a-z0-9]/g,'_')}.png';document.body.appendChild(a);a.click();document.body.removeChild(a);});</script></body></html>`;
+          const imgHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>${taskTitle}</title><style>*{box-sizing:border-box;margin:0;padding:0;}body{background:#060810;color:#e0f2fe;font-family:system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center;}h1{font-size:24px;margin-bottom:16px;color:#38bdf8;letter-spacing:1px;}.img-box{max-width:90vw;max-height:75vh;border-radius:16px;overflow:hidden;border:1px solid rgba(56,189,248,0.3);box-shadow:0 0 50px rgba(56,189,248,0.25);margin-bottom:20px;}img{width:100%;height:100%;object-fit:contain;display:block;}.dl-btn{background:linear-gradient(135deg,#0284c7,#06b6d4);color:#fff;border:none;padding:14px 32px;font-size:15px;font-weight:700;border-radius:999px;cursor:pointer;box-shadow:0 0 20px rgba(6,182,212,0.4);transition:transform .15s;}.dl-btn:active{transform:scale(0.96);}</style></head><body><h1>${taskTitle}</h1><div class="img-box"><img src="${finalImg}" alt="${taskTitle}"/></div><button id="dlBtn" class="dl-btn">⬇️ DOWNLOAD IMAGE</button><script>const projId=window.location.pathname.split('/').pop();document.getElementById('dlBtn').addEventListener('click',()=>{fetch('/api/projects/'+projId+'/downloaded',{method:'POST'}).catch(()=>{});const a=document.createElement('a');a.href='${finalImg}';a.download='${taskTitle.toLowerCase().replace(/[^a-z0-9]/g,'_')}.png';document.body.appendChild(a);a.click();document.body.removeChild(a);});</script></body></html>`;
+
+          const res = await fetch('/api/projects', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title: taskTitle,
+              type: 'image',
+              html: imgHtml
+            })
+          });
+          const projJson = await res.json();
+          projId = projJson.id;
+          projectUrl = projJson.projectUrl || `/project/${projJson.id}`;
         } else {
-          projType = 'web';
-          generatedHtml = createCustom3DModelHtml(taskTitle, taskTitle);
+          // Autonomous project generator (3D models, games, websites/apps) - 4-7 seconds for real unique generation
+          const res = await fetch('/api/generate-project', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: cmd,
+              type: projType,
+              title: taskTitle,
+              persona: activePersona
+            })
+          });
+          const projJson = await res.json();
+          projId = projJson.id;
+          projectUrl = projJson.projectUrl || `/project/${projJson.id}`;
         }
 
-        const res = await fetch('/api/projects', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: taskTitle,
-            type: projType,
-            html: generatedHtml
-          })
-        });
-
-        const projJson = await res.json();
-        const projectUrl = projJson.projectUrl || `/project/${projJson.id}`;
-        const projId = projJson.id;
-
-        // User instruction: "aur jab yo ban jayega tab Jarvis bolega project completed sir"
-        const finishVoiceText = "Project completed, Sir.";
+        // Voice completion announcement
+        const finishVoiceText = activePersona === 'rose'
+          ? "Project complete ho gaya hai Boss!"
+          : "Project completed, Sir.";
 
         setBuildingProjectTask(null);
         setIsLiveProcessing(false);
@@ -5721,7 +5907,7 @@ export default function App() {
           if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
         }, turnId);
 
-        // User instruction: "fir yo us project ko browser me open karega"
+        // Open newly generated project in browser tab
         window.open(projectUrl, '_blank') || (window.location.href = projectUrl);
 
         activeBackgroundProjectRef.current = {
@@ -5739,6 +5925,7 @@ export default function App() {
         });
 
       } catch (err: any) {
+        console.error("Background project build error:", err);
         setBuildingProjectTask(null);
         setIsLiveProcessing(false);
         const errMsg = activePersona === 'rose'
@@ -5752,8 +5939,8 @@ export default function App() {
     // 5. HIDDEN BACKGROUND VOICE-TO-VOICE PIPELINE:
     // Does NOT pollute visible chat screen, speaks back immediately with ultra-low latency,
     // and saves completely to isolated background server archive!
-    if (isExecutingBackgroundVoiceRef.current) return;
-    if (turnId !== undefined && backgroundVoiceTurnIdRef.current !== turnId) return;
+    const currentTurn = turnId !== undefined ? turnId : ++backgroundVoiceTurnIdRef.current;
+    currentProcessingTurnIdRef.current = currentTurn;
 
     isExecutingBackgroundVoiceRef.current = true;
     setIsLiveProcessing(true);
@@ -5761,9 +5948,20 @@ export default function App() {
 
     // Safety watchdog to prevent lockup
     const safetyReleaseTimer = setTimeout(() => {
-      isExecutingBackgroundVoiceRef.current = false;
-      setIsLiveProcessing(false);
-    }, 4500);
+      if (currentProcessingTurnIdRef.current === currentTurn && isExecutingBackgroundVoiceRef.current) {
+        isExecutingBackgroundVoiceRef.current = false;
+        setIsLiveProcessing(false);
+        const timeoutMsg = activePersona === 'rose'
+          ? "Ji Boss, main sun rahi hoon. Dobara boliye!"
+          : "Standing by, Sir. I am listening.";
+        setLiveAiReply(timeoutMsg);
+        setLiveUserTranscript('');
+        speakRealVoiceBackground(timeoutMsg, activePersona, () => {
+          setLiveAiReply('');
+          if (resumeBackgroundListeningRef.current) resumeBackgroundListeningRef.current();
+        }, currentTurn);
+      }
+    }, 12000);
 
     try {
       // Small system alert pulse
@@ -5799,7 +5997,7 @@ export default function App() {
         screenSnapshotForAi
       );
 
-      if (turnId !== undefined && backgroundVoiceTurnIdRef.current !== turnId) return;
+      if (currentProcessingTurnIdRef.current !== currentTurn) return;
 
       // Robust reply text extraction
       let replyText = '';
@@ -5865,7 +6063,7 @@ export default function App() {
         }
       }
 
-      if (turnId !== undefined && backgroundVoiceTurnIdRef.current !== turnId) return;
+      if (currentProcessingTurnIdRef.current !== currentTurn) return;
 
       // Update background history ref
       backgroundVoiceHistoryRef.current.push({ role: 'user', content: cmd });
@@ -5885,7 +6083,7 @@ export default function App() {
             resumeBackgroundListeningRef.current();
           }
         }, 350);
-      }, turnId);
+      }, currentTurn);
 
       // 💾 SECRET ISOLATED BACKGROUND LOGGING: Completely separate from main chat UI
       logBackgroundConversation({
@@ -5901,7 +6099,7 @@ export default function App() {
       );
     } catch (e: any) {
       console.warn("Background conversation error:", e);
-      if (turnId !== undefined && backgroundVoiceTurnIdRef.current !== turnId) return;
+      if (currentProcessingTurnIdRef.current !== currentTurn) return;
       const fallbackMsg = activePersona === 'rose'
         ? "Ji Sir, main aapko sun rahi hoon, bataiye!"
         : "Yes Sir, standing by. How can I help?";
@@ -5915,11 +6113,13 @@ export default function App() {
             resumeBackgroundListeningRef.current();
           }
         }, 350);
-      }, turnId);
+      }, currentTurn);
     } finally {
       clearTimeout(safetyReleaseTimer);
-      isExecutingBackgroundVoiceRef.current = false;
-      setIsLiveProcessing(false);
+      if (currentProcessingTurnIdRef.current === currentTurn) {
+        isExecutingBackgroundVoiceRef.current = false;
+        setIsLiveProcessing(false);
+      }
     }
   };
 
@@ -5988,9 +6188,10 @@ export default function App() {
       let accumulatedTranscript = '';
       let isRecognitionActive = false;
 
+      let hasDispatchedForUtterance = false;
+
       const safeStartListening = () => {
         if (!isRunning || !isBackgroundSystemActiveRef.current) return;
-        if (isSpeakingRef.current) return; // Wait until Jarvis finishes speaking
         if (isRecognitionActive) return;
 
         try {
@@ -6032,18 +6233,28 @@ export default function App() {
               }
             }
 
-            // Always convert any Hindi Devanagari to clean English/Hinglish alphabet
+            // Always convert any Hindi Devanagari to clean English/Hinglish alphabet and fix phonetics
             const rawCombined = (accumulatedTranscript + ' ' + interim).trim();
-            const combined = convertDevanagariToHinglish(rawCombined);
+            const combined = sanitizeJarvisSpeech(rawCombined);
             if (!combined) return;
 
             latestTranscriptForEnd = combined;
 
-            // ⚡ INSTANT BARGE-IN: If Jarvis or Rose is speaking, interrupt immediately
-            if (isSpeakingRef.current) {
-              backgroundVoiceTurnIdRef.current++;
+            // ⚡ INSTANT BARGE-IN INTERRUPTION: If Jarvis or Rose is speaking, cut speech audio immediately!
+            if (isSpeakingRef.current || currentAudioElRef.current || liveAudioElementRef.current || (typeof window !== 'undefined' && window.speechSynthesis?.speaking)) {
               stopSpeaking();
               stopAudio();
+              if (currentAudioElRef.current) {
+                try {
+                  currentAudioElRef.current.pause();
+                  currentAudioElRef.current.currentTime = 0;
+                  currentAudioElRef.current.src = '';
+                  currentAudioElRef.current = null;
+                } catch (e) {}
+              }
+              if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+                try { window.speechSynthesis.cancel(); } catch (e) {}
+              }
               isSpeakingRef.current = false;
               setIsSpeaking(false);
               setLiveAiReply('');
@@ -6053,39 +6264,29 @@ export default function App() {
 
             const triggerFinalAction = () => {
               clearTimeout(speechDebounceTimer);
-              const finalQuery = convertDevanagariToHinglish(combined.trim());
+              const finalQuery = sanitizeJarvisSpeech((accumulatedTranscript || combined || '').trim());
               accumulatedTranscript = '';
               latestTranscriptForEnd = '';
+              hasDispatchedForUtterance = true;
               if (finalQuery.length >= 2) {
                 const turnId = ++backgroundVoiceTurnIdRef.current;
+                currentProcessingTurnIdRef.current = turnId;
                 executeBackgroundAction(finalQuery, turnId);
               }
             };
 
-            const combLower = combined.toLowerCase().trim();
-            const isInstantTriggerPhrase = 
-              /^(hello|hi|hey|suno|jarvis|rose|ok|theek hai|thik hai)$/i.test(combLower) ||
-              combLower.includes('hello jarvis') || combLower.includes('hi jarvis') || combLower.includes('hey jarvis') ||
-              combLower.includes('suno jarvis') || combLower.includes('jarvis suno') || combLower.includes('rose suno') ||
-              combLower.includes('kaise ho') || combLower.includes('how are you') || combLower.includes('kya haal') ||
-              combLower.startsWith('open ') || combLower.startsWith('kholo ') || combLower.startsWith('search ') ||
-              combLower.startsWith('call ') || combLower.startsWith('alarm ') || combLower === 'stop' || combLower === 'chup';
-
             clearTimeout(speechDebounceTimer);
 
-            // ⚡ 0.1-SECOND RESPONSE TIMING:
-            // 1. If final utterance confirmed: fire in 30ms!
-            // 2. If recognized instant trigger phrase / greeting: fire in 50ms!
-            // 3. For standard ongoing speech: debounce in 100ms (0.1s)!
-            const debounceDelay = hasFinalResult ? 30 : (isInstantTriggerPhrase ? 50 : 100);
+            // Natural conversational pause: wait 700ms on final or 1100ms on interim so sentences are not cut off
+            const debounceDelay = hasFinalResult ? 700 : 1100;
             speechDebounceTimer = setTimeout(triggerFinalAction, debounceDelay);
           };
 
           bgRec.onerror = (e: any) => {
             isRecognitionActive = false;
             clearTimeout(restartTimer);
-            if (isRunning && isBackgroundSystemActiveRef.current && !isSpeakingRef.current) {
-              restartTimer = setTimeout(safeStartListening, 300);
+            if (isRunning && isBackgroundSystemActiveRef.current) {
+              restartTimer = setTimeout(safeStartListening, 150);
             }
           };
 
@@ -6094,20 +6295,23 @@ export default function App() {
             clearTimeout(restartTimer);
             clearTimeout(speechDebounceTimer);
 
-            // If user finished speaking right before end event, execute immediately in 0.1s!
+            // If user finished speaking right before end event, execute once cleanly
             const pendingRaw = (accumulatedTranscript || latestTranscriptForEnd || '').trim();
-            const pending = convertDevanagariToHinglish(pendingRaw);
             accumulatedTranscript = '';
             latestTranscriptForEnd = '';
-            if (pending.length >= 2) {
+            if (!hasDispatchedForUtterance && pendingRaw.length >= 2) {
+              const pending = sanitizeJarvisSpeech(pendingRaw);
+              hasDispatchedForUtterance = true;
               const turnId = ++backgroundVoiceTurnIdRef.current;
+              currentProcessingTurnIdRef.current = turnId;
               executeBackgroundAction(pending, turnId);
-              return;
             }
 
-            // Clean restart with fresh instance
-            if (isRunning && isBackgroundSystemActiveRef.current && !isSpeakingRef.current) {
-              restartTimer = setTimeout(safeStartListening, 150);
+            hasDispatchedForUtterance = false;
+
+            // Clean restart with fresh instance immediately
+            if (isRunning && isBackgroundSystemActiveRef.current) {
+              restartTimer = setTimeout(safeStartListening, 80);
             }
           };
 
@@ -6116,18 +6320,16 @@ export default function App() {
         } catch (err) {
           isRecognitionActive = false;
           clearTimeout(restartTimer);
-          if (isRunning && isBackgroundSystemActiveRef.current && !isSpeakingRef.current) {
-            restartTimer = setTimeout(safeStartListening, 350);
+          if (isRunning && isBackgroundSystemActiveRef.current) {
+            restartTimer = setTimeout(safeStartListening, 250);
           }
         }
       };
 
       resumeBackgroundListeningRef.current = safeStartListening;
 
-      // Start listening if not currently speaking greeting
-      if (!isSpeakingRef.current) {
-        safeStartListening();
-      }
+      // Start listening immediately upon activation
+      safeStartListening();
 
       return () => {
         isRunning = false;
